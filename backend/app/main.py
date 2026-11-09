@@ -86,23 +86,31 @@ def run_agent_session(session_id: str, agent: SentinelAgent, state: AgentState, 
     queue.put_nowait({"type": "status_change", "status": "RUNNING", "message": "Agent loop initialized."})
 
     try:
-        final_state = agent.graph.invoke(state)
+        accumulated_logs_len = 0
+        for output in agent.graph.stream(state):
+            for node_name, node_state in output.items():
+                if isinstance(node_state, dict):
+                    new_logs = node_state.get("logs", [])
+                    if len(new_logs) > accumulated_logs_len:
+                        for log_msg in new_logs[accumulated_logs_len:]:
+                            queue.put_nowait({"type": "log", "message": log_msg})
+                        accumulated_logs_len = len(new_logs)
+
+                    node_status = node_state.get("status")
+                    if node_status:
+                        queue.put_nowait({"type": "status_change", "status": node_status})
         
-        sessions[session_id]["state"] = final_state
-        sessions[session_id]["result"] = final_state
+        sessions[session_id]["state"] = state
+        sessions[session_id]["result"] = state
         sessions[session_id]["status"] = "COMPLETED"
 
-        # Stream all generated logs
-        for log in final_state.get("logs", []):
-            queue.put_nowait({"type": "log", "message": log})
-
         # Send completion event with findings and diffs
-        findings_json = [f.model_dump() for f in final_state.get("findings", [])]
+        findings_json = [f.model_dump() for f in state.findings]
         queue.put_nowait({
             "type": "completed",
             "status": "COMPLETED",
             "findings": findings_json,
-            "diffs": final_state.get("applied_diffs", []),
+            "diffs": state.applied_diffs,
         })
 
     except Exception as e:

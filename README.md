@@ -61,6 +61,14 @@ backend\.venv\Scripts\uvicorn.exe app.main:app --app-dir backend --host 127.0.0.
 ```
 API Documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
+### 5. Start the Interactive Dashboard (Frontend)
+In a new terminal window:
+```powershell
+cd frontend
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173) in your browser to launch the SentinelAI developer dashboard.
+
 ---
 
 ## 📂 Repository Structure
