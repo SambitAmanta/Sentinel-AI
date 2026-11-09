@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.scanners.schemas import AuditReport, Severity, VulnerabilityFinding
+from app.scanners.ast_security_rules import ASTSecurityScanner
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class BanditScanner:
     """Executes Bandit static analysis and outputs structured Pydantic findings."""
 
     def __init__(self, bandit_executable: Optional[str] = None):
+        self.ast_scanner = ASTSecurityScanner()
         if bandit_executable:
             self.bandit_exec = bandit_executable
         else:
@@ -106,6 +108,22 @@ class BanditScanner:
                 findings.append(finding)
         except Exception as e:
             logger.error(f"Error parsing Bandit JSON output: {e}")
+
+        # AST-level static security scan for CWE-22, CWE-95, etc.
+        try:
+            for py_file in target_path.rglob("*.py"):
+                if "test_" in py_file.name or "tests" in py_file.parts or ".venv" in py_file.parts:
+                    continue
+                try:
+                    rel_f = str(py_file.relative_to(target_path))
+                except ValueError:
+                    rel_f = str(py_file)
+                ast_findings = self.ast_scanner.scan_file(py_file, rel_f)
+                for af in ast_findings:
+                    af.id = f"VULN-{len(findings) + 1:03d}"
+                    findings.append(af)
+        except Exception as e:
+            logger.error(f"Error during AST security scanning: {e}")
 
         duration = (time.time() - start_time) * 1000
         report = AuditReport(

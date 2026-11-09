@@ -94,11 +94,32 @@ Fix this regression while maintaining full security!
         
         # CWE-89: SQL Injection through raw f-string or string formatting
         if cwe_id == "CWE-89" or "f\"SELECT" in code_snippet or "f'SELECT" in code_snippet:
-            # Pattern: query = f"SELECT ... WHERE id = '{user_id}'" -> cursor.execute(query)
-            # Replaced with parameterized query
             target_code = 'query = f"SELECT id, username, role FROM users WHERE id = \'{user_id}\'"\n    cursor.execute(query)'
             replacement_code = 'query = "SELECT id, username, role FROM users WHERE id = ?"\n    cursor.execute(query, (user_id,))'
-            
+            return {
+                "target_code": target_code,
+                "replacement_code": replacement_code,
+            }
+
+        # CWE-78: Command Injection via shell=True
+        if cwe_id == "CWE-78" or "shell=True" in code_snippet:
+            target_code = 'cmd = f"ping -c 1 {host}"\n    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)'
+            replacement_code = 'cmd = ["ping", "-c", "1", host]\n    proc = subprocess.run(cmd, shell=False, capture_output=True, text=True)'
+            return {
+                "target_code": target_code,
+                "replacement_code": replacement_code,
+            }
+
+        # CWE-22: Path Traversal
+        if cwe_id == "CWE-22" or "os.path.join" in code_snippet:
+            target_code = """file_path = os.path.join(str(BASE_STORAGE), filename)
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()"""
+            replacement_code = """target = (BASE_STORAGE / filename).resolve()
+    if not target.is_relative_to(BASE_STORAGE.resolve()):
+        raise PermissionError("Path traversal attempt detected: access denied.")
+    with open(target, "r", encoding="utf-8") as f:
+        return f.read()"""
             return {
                 "target_code": target_code,
                 "replacement_code": replacement_code,

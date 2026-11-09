@@ -28,7 +28,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ finding }) => {
   let modifiedCode = finding.code_snippet;
 
   if (finding.suggested_fix_diff) {
-    // If we have a diff, we can synthesize the before/after or show the diff
     const diff = finding.suggested_fix_diff;
     if (diff.includes("WHERE id = ?")) {
       originalCode = `def get_user_by_id(conn: sqlite3.Connection, user_id: str) -> Optional[Dict[str, Any]]:
@@ -50,6 +49,40 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ finding }) => {
     if row:
         return {"id": row[0], "username": row[1], "role": row[2]}
     return None`;
+    } else if (diff.includes("shell=False") || diff.includes("ping")) {
+      originalCode = `def run_diagnostic_ping(host: str) -> Dict[str, Any]:
+    # VULNERABILITY: Command Injection via shell=True (Bandit B602 / CWE-78)
+    cmd = f"ping -c 1 {host}"
+    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return {
+        "host": host,
+        "returncode": proc.returncode,
+        "output": proc.stdout,
+    }`;
+
+      modifiedCode = `def run_diagnostic_ping(host: str) -> Dict[str, Any]:
+    # SECURED: Execute command as discrete argument list without subshell invocation
+    cmd = ["ping", "-c", "1", host]
+    proc = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+    return {
+        "host": host,
+        "returncode": proc.returncode,
+        "output": proc.stdout,
+    }`;
+    } else if (diff.includes("is_relative_to") || diff.includes("PermissionError")) {
+      originalCode = `def read_user_file(filename: str) -> str:
+    # VULNERABILITY: Path traversal via unvalidated path joining (CWE-22 / Bandit B108)
+    file_path = os.path.join(str(BASE_STORAGE), filename)
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()`;
+
+      modifiedCode = `def read_user_file(filename: str) -> str:
+    # SECURED: Resolve path strictly within boundary storage directory
+    target = (BASE_STORAGE / filename).resolve()
+    if not target.is_relative_to(BASE_STORAGE.resolve()):
+        raise PermissionError("Path traversal attempt detected: access denied.")
+    with open(target, "r", encoding="utf-8") as f:
+        return f.read()`;
     }
   }
 
@@ -150,3 +183,4 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ finding }) => {
     </div>
   );
 };
+

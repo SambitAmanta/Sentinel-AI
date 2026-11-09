@@ -73,16 +73,24 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Target Input & Action Controls */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-1.5 text-sm focus-within:border-cyan-500/50 transition">
-            <span className="text-xs text-slate-500 font-mono mr-2">Target:</span>
-            <input
-              type="text"
+          <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-lg px-2.5 py-1 text-sm focus-within:border-cyan-500/50 transition">
+            <span className="text-xs text-slate-500 font-mono mr-1.5">Preset:</span>
+            <select
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
               disabled={isRunning}
-              className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none w-64 md:w-80"
-              placeholder="eval/scenarios/py_sql_injection"
-            />
+              className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none cursor-pointer pr-2"
+            >
+              <option value="eval/scenarios/py_sql_injection" className="bg-slate-900">
+                SQL Injection (CWE-89)
+              </option>
+              <option value="eval/scenarios/py_command_injection" className="bg-slate-900">
+                Command Injection (CWE-78)
+              </option>
+              <option value="eval/scenarios/py_path_traversal" className="bg-slate-900">
+                Path Traversal (CWE-22)
+              </option>
+            </select>
           </div>
 
           {getStatusBadge()}
@@ -113,3 +121,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
