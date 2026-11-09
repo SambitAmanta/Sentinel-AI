@@ -7,3 +7,4 @@ def check_server_health(server_address: str) -> Dict[str, Any]:
     result = run_diagnostic_ping(server_address)
     result["health_status"] = "UP" if result["returncode"] == 0 else "DOWN"
     return result
+

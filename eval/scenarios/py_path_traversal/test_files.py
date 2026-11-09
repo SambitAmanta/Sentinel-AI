@@ -29,3 +29,4 @@ def test_path_traversal_defense():
     # Attempting to escape storage directory with traversal
     with pytest.raises((PermissionError, ValueError)):
         read_user_file("../secret.txt")
+

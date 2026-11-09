@@ -23,3 +23,4 @@ def test_telemetry_recording(tmp_path):
     assert summary["resolution_rate"] == 100.0
     assert summary["total_vulnerabilities_fixed"] == 2
     assert summary["mean_duration_ms"] == 1250.0
+

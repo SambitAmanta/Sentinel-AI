@@ -39,3 +39,4 @@ def test_client_health_check(monkeypatch):
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = check_server_health("127.0.0.1")
     assert res["health_status"] == "UP"
+
