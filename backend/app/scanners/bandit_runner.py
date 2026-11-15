@@ -48,8 +48,8 @@ class BanditScanner:
         if not target_path.exists():
             raise FileNotFoundError(f"Target path does not exist: {target_path}")
 
-        # Run bandit skipping B101 (assert statements in tests)
-        cmd = [self.bandit_exec, "-r", str(target_path), "-f", "json", "-q", "-s", "B101"]
+        # Run bandit skipping B101 (assert statements in tests) and B401-B415 (informational import warnings)
+        cmd = [self.bandit_exec, "-r", str(target_path), "-f", "json", "-q", "-s", "B101,B401,B402,B403,B404,B405,B406,B407,B408,B409,B410,B411,B412,B413,B414,B415"]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -85,6 +85,9 @@ class BanditScanner:
                     continue
 
                 test_id = item.get("test_id", "UNKNOWN")
+                # Filter out informational import blacklists (B4xx)
+                if test_id.startswith("B4"):
+                    continue
                 meta = BANDIT_METADATA_MAP.get(test_id, {})
                 cwe_id = meta.get("cwe") or item.get("issue_cwe", {}).get("id")
                 if cwe_id and not str(cwe_id).startswith("CWE-"):

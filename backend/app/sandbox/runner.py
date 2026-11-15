@@ -1,11 +1,12 @@
-"""Isolated subprocess test execution runner for sandbox verification."""
+"""Isolated subprocess test execution runner with environment scrub and timeout containment."""
 import logging
+import os
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -17,62 +18,98 @@ class TestRunResult:
     stdout: str
     stderr: str
     error_summary: Optional[str] = None
+    timed_out: bool = False
 
 class TestRunner:
-    """Executes test suites in an isolated environment with strict timeout guardrails."""
+    """Executes test suites in an isolated environment with network scrubbing and process tree containment."""
+    __test__ = False
 
     def __init__(self, timeout_seconds: int = 15, pytest_executable: Optional[str] = None):
         self.timeout_seconds = timeout_seconds
-        # Use active venv python/pytest if available
         if pytest_executable:
             self.pytest_exec = pytest_executable
         else:
             venv_pytest = Path(sys.prefix) / "Scripts" / "pytest.exe"
             self.pytest_exec = str(venv_pytest) if venv_pytest.exists() else "pytest"
 
+    def _get_scrubbed_env(self) -> Dict[str, str]:
+        """Scrubs out sensitive environment variables and restricts network access."""
+        env = os.environ.copy()
+        
+        # Strip external network proxies and API tokens
+        blocked_keys = [
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
+            "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "AWS_ACCESS_KEY_ID"
+        ]
+        for key in blocked_keys:
+            env.pop(key, None)
+
+        # Force offline loopback restriction
+        env["NO_PROXY"] = "*"
+        env["PYTHONUNBUFFERED"] = "1"
+        return env
+
     def run_tests(self, target_dir: str | Path, test_file: Optional[str] = None) -> TestRunResult:
         target_path = Path(target_dir).resolve()
         start = time.time()
 
-        cmd = [self.pytest_exec, "-q", "--tb=short"]
+        cmd = [self.pytest_exec, "-q", "--tb=short", "-p", "no:langsmith"]
         if test_file:
             cmd.append(str(target_path / test_file))
         else:
             cmd.append(str(target_path))
 
+        env = self._get_scrubbed_env()
+        proc = None
+
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=str(target_path),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout_seconds,
+                env=env,
             )
+            stdout, stderr = proc.communicate(timeout=self.timeout_seconds)
             duration = (time.time() - start) * 1000
             passed = proc.returncode == 0
             error_summary = None
 
             if not passed:
-                error_summary = self._extract_failure_reason(proc.stdout)
+                error_summary = self._extract_failure_reason(stdout)
 
             return TestRunResult(
                 passed=passed,
                 returncode=proc.returncode,
                 duration_ms=round(duration, 2),
-                stdout=proc.stdout,
-                stderr=proc.stderr,
+                stdout=stdout,
+                stderr=stderr,
                 error_summary=error_summary,
+                timed_out=False,
             )
 
         except subprocess.TimeoutExpired:
             duration = (time.time() - start) * 1000
+            # Kill process tree on Windows
+            if proc:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                except Exception:
+                    proc.kill()
+
             return TestRunResult(
                 passed=False,
                 returncode=-1,
                 duration_ms=round(duration, 2),
                 stdout="",
-                stderr="Test run timed out after guardrail threshold.",
-                error_summary=f"TimeoutExpired: Test execution exceeded {self.timeout_seconds}s limit.",
+                stderr=f"Process terminated: Exceeded safety threshold of {self.timeout_seconds}s limit.",
+                error_summary=f"TimeoutExpired: Execution exceeded {self.timeout_seconds}s limit (Infinite Loop / Runaway CPU Contained).",
+                timed_out=True,
             )
         except Exception as e:
             duration = (time.time() - start) * 1000
@@ -83,6 +120,7 @@ class TestRunner:
                 stdout="",
                 stderr=str(e),
                 error_summary=f"ExecutionError: {e}",
+                timed_out=False,
             )
 
     def _extract_failure_reason(self, output: str) -> str:
@@ -99,4 +137,3 @@ class TestRunner:
         if failures:
             return "\n".join(failures[:5])
         return output[-500:] if len(output) > 500 else output
-

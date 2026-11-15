@@ -151,11 +151,13 @@ class SentinelAgent:
         else:
             state.iteration += 1
             state.last_test_error = result.error_summary
-            state.add_log(f"❌ Tests FAILED: {result.error_summary}")
+            state.add_log(f"❌ Tests FAILED on Attempt {state.iteration}: {result.error_summary}")
+
+            # Roll back failed patch so the next self-healing attempt starts from clean state
+            self.patch_engine.rollback_file(repo_path / finding.file_path)
 
             if state.iteration >= state.max_iterations:
-                state.add_log(f"🛑 Max self-healing iterations reached for [{finding.id}]. Rolling back.")
-                self.patch_engine.rollback_file(repo_path / finding.file_path)
+                state.add_log(f"🛑 Max self-healing iterations reached for [{finding.id}]. Marking FAILED.")
                 finding.status = FindingStatus.FAILED
                 state.current_finding_index += 1
 

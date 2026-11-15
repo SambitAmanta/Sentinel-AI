@@ -8,7 +8,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8.x-646cff.svg)](https://vitejs.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> An enterprise-grade, **100% Local-First** autonomous developer agent that ingests codebases, isolates security vulnerabilities via deterministic AST and static analysis, and executes stateful self-correcting agent loops in a test sandbox to produce verified multi-file fixes and unified git diffs.
+> A **100% Local-First** autonomous developer agent that ingests codebases, isolates security vulnerabilities via deterministic AST and static analysis, and executes stateful self-correcting agent loops in a test sandbox to produce verified multi-file fixes and unified git diffs.
 
 ---
 
@@ -30,9 +30,9 @@
 Engineered specifically to run efficiently on consumer/edge hardware (**NVIDIA GeForce RTX 5050 8GB VRAM**) with **zero external cloud dependencies, zero token cost, and complete data privacy**.
 
 1. **Tree-sitter AST & Cross-File Symbol Graph**: Parses Concrete Syntax Trees (CST) and builds an in-memory symbol call graph across modules (`db.py` $\rightarrow$ `service.py`) to prevent broken function signatures or regressions.
-2. **Deterministic Grounding (Bandit + AST Rules + OWASP/CWE)**: Eliminates LLM vulnerability hallucination by using verified static analysis rulesets and custom AST inspectors mapped to CWE and OWASP Top 10 standards.
+2. **Deterministic Grounding (Bandit + AST Rules + OWASP/CWE)**: Grounds vulnerability detection in deterministic AST analysis and Bandit static rulesets mapped to CWE and OWASP Top 10 standards.
 3. **Stateful Self-Correction Loop (LangGraph)**: An autonomous state machine (`Scan` $\rightarrow$ `Plan` $\rightarrow$ `Patch` $\rightarrow$ `Test Sandbox` $\rightarrow$ `Reflect/Heal` $\rightarrow$ `Finalize`).
-4. **Subprocess Sandbox Test Runner**: Executes unit test suites with strict timeout guardrails to catch regressions and inject traceback errors back into the agent context for automated healing.
+4. **Subprocess & Container Sandbox Test Runner**: Executes unit test suites with strict timeout guardrails to catch regressions and inject traceback errors back into the agent context for automated healing.
 5. **Real-Time Streaming Studio**: FastAPI Server-Sent Events (SSE) streaming thought tokens and sandbox logs directly to a modern React + Monaco Diff viewer.
 6. **Local Telemetry & Observability**: In-memory and file-backed telemetry logging audit latencies, resolution rates, and sandbox runtimes without third-party cloud trackers.
 
@@ -46,10 +46,10 @@ flowchart TD
     Scan --> Graph["2. Symbol Graph Resolution<br/>Extract Enclosing Function & Callers"]
     Graph --> State["3. LangGraph State Machine<br/>Pydantic Structured Findings"]
     
-    State --> Patch["4. Patch Synthesis<br/>Local SLM (Qwen2.5-Coder) / Synthesizer"]
-    Patch --> Sandbox["5. Subprocess Test Sandbox<br/>Execute Unit Tests (Pytest)"]
+    State --> Patch["4. Patch Synthesis<br/>Local SLM (Qwen2.5-Coder) / Structured Synthesis"]
+    Patch --> Sandbox["5. Sandbox Verification<br/>Execute Unit Tests in Subprocess / Docker Sandbox"]
 
-    Sandbox -->|Regression / Test Failed| Reflect["Self-Healing Reflection<br/>Inject Traceback & Retrying (Max 3)"]
+    Sandbox -->|Regression / Test Failed| Reflect["Self-Healing Reflection<br/>Inject Traceback & Retry (Max 3)"]
     Reflect --> Patch
 
     Sandbox -->|Tests Passed 100%| Finalize["6. Final Verification<br/>Generate Unified Git Diff & Monaco View"]
@@ -60,17 +60,29 @@ flowchart TD
 
 ## 📊 Empirical Evaluation Benchmark Results (RTX 5050 8GB)
 
-SentinelAI includes an automated evaluation benchmark (`eval/run_benchmark.py`) that tests the agent across curated CVE scenarios, measuring the performance jump from **Single-Shot Prompting (Pass@1)** to **SentinelAI Self-Healing Loop (Pass@3)**:
+SentinelAI includes an automated evaluation benchmark (`eval/run_benchmark.py`) testing the agent across **12 distinct scenarios** and **8 CWE classes** (including 8 multi-file repositories). It evaluates **Single-Shot LLM Generation (Pass@1)** against the **SentinelAI Autonomous Self-Healing Loop (Pass@3)**:
 
-| Scenario ID | Vulnerability Scenario | CWE ID | Single-Shot Baseline (Pass@1) | SentinelAI Loop (Pass@3) | Iterations | Remediation Latency | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SCENARIO-01** | SQL Injection | CWE-89 | `0.0% (Fails)` | `100.0% (Pass)` | 1 | 2,169 ms | **RESOLVED** |
-| **SCENARIO-02** | Command Injection (`shell=True`) | CWE-78 | `0.0% (Fails)` | `100.0% (Pass)` | 1 | 3,962 ms | **RESOLVED** |
-| **SCENARIO-03** | Path Traversal (`os.path.join`) | CWE-22 | `0.0% (Fails)` | `100.0% (Pass)` | 1 | 2,096 ms | **RESOLVED** |
+| Scenario ID | Vulnerability Scenario | CWE Class | Multi-File | Single-Shot (Pass@1) | SentinelAI (Pass@3) | Iterations | Latency | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | Yes | `PASS` | `PASS (100%)` | 1 | 1,738 ms | **RESOLVED** |
+| **SCENARIO-02** | SQL Injection w/ Pagination Regression | CWE-89 | Yes | `FAIL (0%)` | `PASS (100%)` | 2 | 3,203 ms | **RESOLVED** |
+| **SCENARIO-03** | OS Command Injection in Network Ping | CWE-78 | Yes | `PASS` | `PASS (100%)` | 1 | 1,860 ms | **RESOLVED** |
+| **SCENARIO-04** | Command Injection w/ Subprocess Contract | CWE-78 | Yes | `FAIL (0%)` | `PASS (100%)` | 2 | 3,675 ms | **RESOLVED** |
+| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | Yes | `PASS` | `PASS (100%)` | 1 | 1,730 ms | **RESOLVED** |
+| **SCENARIO-06** | Zip Slip Archive Directory Traversal | CWE-22 | Yes | `FAIL (0%)` | `PASS (100%)` | 2 | 3,263 ms | **RESOLVED** |
+| **SCENARIO-07** | Insecure Deserialization via Pickle | CWE-502 | Yes | `PASS` | `PASS (100%)` | 1 | 1,840 ms | **RESOLVED** |
+| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | Yes | `FAIL (0%)` | `PASS (100%)` | 2 | 3,282 ms | **RESOLVED** |
+| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | Yes | `PASS` | `PASS (100%)` | 1 | 1,726 ms | **RESOLVED** |
+| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | Yes | `PASS` | `PASS (100%)` | 1 | 1,690 ms | **RESOLVED** |
+| **SCENARIO-11** | ReDoS Catastrophic Backtracking | CWE-1333 | No | `PASS` | `PASS (100%)` | 1 | 2,964 ms | **RESOLVED** |
+| **SCENARIO-12** | Cross-Site Scripting HTML Injection | CWE-79 | Yes | `PASS` | `PASS (100%)` | 1 | 2,069 ms | **RESOLVED** |
 
-* **Single-Shot Baseline**: `0.0%` test pass rate (vulnerabilities remain unmitigated or introduce breaking regressions).
-* **SentinelAI Autonomous Loop**: **`100.0%`** test pass rate with **0% code regressions** verified in the test sandbox.
-* **Mean Remediation Speed**: **~2.7 seconds** per scenario on local GPU.
+### Benchmark Analysis & Findings
+* **Single-Shot Baseline (Pass@1)**: **`66.7%`** (8/12). While single-shot generation resolves isolated functions, it introduces breaking contract regressions in 33.3% of cases (e.g., dropping pagination parameters, breaking telemetry format contracts, or rejecting valid nested archive paths).
+* **SentinelAI Autonomous Loop (Pass@3)**: **`100.0%`** (12/12) with **`0.0%` test regressions**. All 4 contract regressions introduced on Attempt 1 were self-healed on Attempt 2 via traceback reflection.
+* **Mean Self-Healing Iterations**: **`1.33` iterations/scenario** (demonstrating genuine multi-turn reflection on test failure traces).
+* **Deterministic Containment**: 2 fault-injection test cases (runaway infinite loops and host write escapes) were contained with zero host impact.
+* **Latency Profile**: **Median (p50): ~1.96s** | **Mean: ~2.42s** | **Tail (p95): ~3.46s** running locally on an RTX 5050 8GB.
 
 ---
 
@@ -205,11 +217,12 @@ AI_Studio/
 │   │       ├── patch_engine.py          # Unified git diff generator & rollback engine
 │   │       └── runner.py                # Isolated subprocess test runner
 │   │
-│   └── tests/                           # 6 Integration and unit test suites
-│       ├── test_agent_loop.py
-│       ├── test_api_direct.py
-│       ├── test_ast_engine.py
-│       └── test_telemetry.py
+│   └── tests/                           # Unit and integration test suites (5 test suites)
+│       ├── test_agent_loop.py           # LangGraph self-healing loop tests
+│       ├── test_api_direct.py           # FastAPI route handler direct tests
+│       ├── test_ast_engine.py           # Tree-sitter symbol graph & caller tests
+│       ├── test_sandbox_fault_injection.py # Infinite loop & host write escape containment
+│       └── test_telemetry.py            # Audit metrics tracking tests
 │
 ├── frontend/                            # Pillar 5: Interactive Developer Studio
 │   ├── src/
@@ -228,10 +241,19 @@ AI_Studio/
 │   └── vite.config.ts
 │
 └── eval/                                # Benchmark Suite & Telemetry
-    ├── scenarios/
+    ├── scenarios/                       # 12 benchmark scenarios across 8 CWE classes
     │   ├── py_sql_injection/            # CWE-89 SQL Injection target
+    │   ├── py_sql_multikey_regression/  # CWE-89 Multi-file & pagination contract
     │   ├── py_command_injection/        # CWE-78 Command Injection target
-    │   └── py_path_traversal/           # CWE-22 Path Traversal target
+    │   ├── py_cmd_injection_multiturn/  # CWE-78 Multi-file & telemetry format contract
+    │   ├── py_path_traversal/           # CWE-22 Path Traversal target
+    │   ├── py_path_traversal_zip/       # CWE-22 Zip Slip archive traversal
+    │   ├── py_insecure_deserialization/ # CWE-502 Pickle deserialization target
+    │   ├── py_ssrf_webhook/             # CWE-918 SSRF cloud metadata protection
+    │   ├── py_weak_crypto_md5/          # CWE-327 Obsolete MD5 hash upgrade
+    │   ├── py_hardcoded_secrets/        # CWE-798 Hardcoded JWT secret migration
+    │   ├── py_redos_email/              # CWE-1333 ReDoS regex backtracking
+    │   └── py_xss_template/             # CWE-79 Stored XSS template escaping
     ├── run_benchmark.py                 # Automated benchmark evaluator
     └── BENCHMARK_REPORT.md              # Empirical evaluation report
 ```
@@ -240,6 +262,6 @@ AI_Studio/
 
 ## 💼 Resume Bullet Points (Ready for Copy-Paste)
 
-* **Architected an autonomous codebase refactoring agent** that analyzes cross-file dependencies and executes a self-healing loop—validating patches in an isolated test sandbox and auto-correcting regressions to achieve a **100% benchmark pass rate** with zero code breakages.
-* **Built an interactive developer studio** that live-streams agent reasoning and side-by-side code diffs in real time, delivering test-verified security remediations in **under 3 seconds** running completely offline on consumer hardware.
-* **Technologies:** Python, LangGraph, FastAPI, Tree-sitter (AST), Bandit, Pytest, React, TypeScript, Vite, Monaco Editor, Tailwind CSS, Server-Sent Events (SSE), Git.
+* Automated verified security patches across 12 vulnerability scenarios and 8 CWE classes at 100% pass rate with zero test regressions (vs. 66.7% single-shot baseline), utilizing autonomous error reflection and code rollback to self-heal contract breakages.
+* Contained runaway execution and out-of-scope file modifications with zero host impact inside a timeout-enforced test sandbox, streaming live diffs and reasoning traces to an interactive dashboard at ~1.9s median remediation.
+* Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.

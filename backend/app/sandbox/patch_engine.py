@@ -56,11 +56,16 @@ class PatchEngine:
 
         # Normalize line endings
         content_norm = content.replace("\r\n", "\n")
-        target_norm = target_snippet.strip().replace("\r\n", "\n")
-        replacement_norm = replacement_snippet.strip().replace("\r\n", "\n")
+        target_norm = target_snippet.replace("\r\n", "\n")
+        replacement_norm = replacement_snippet.replace("\r\n", "\n")
 
         if target_norm not in content_norm:
-            return False, "Target snippet not found in file."
+            target_norm_strip = target_snippet.strip().replace("\r\n", "\n")
+            if target_norm_strip in content_norm:
+                target_norm = target_norm_strip
+                replacement_norm = replacement_snippet.strip().replace("\r\n", "\n")
+            else:
+                return False, "Target snippet not found in file."
 
         new_content = content_norm.replace(target_norm, replacement_norm, 1)
         p.write_text(new_content, encoding="utf-8")

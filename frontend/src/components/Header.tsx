@@ -84,11 +84,38 @@ export const Header: React.FC<HeaderProps> = ({
               <option value="eval/scenarios/py_sql_injection" className="bg-slate-900">
                 SQL Injection (CWE-89)
               </option>
+              <option value="eval/scenarios/py_sql_multikey_regression" className="bg-slate-900">
+                SQL Injection Multi-File / Self-Healing (CWE-89)
+              </option>
               <option value="eval/scenarios/py_command_injection" className="bg-slate-900">
                 Command Injection (CWE-78)
               </option>
+              <option value="eval/scenarios/py_cmd_injection_multiturn" className="bg-slate-900">
+                Command Injection Multi-File / Self-Healing (CWE-78)
+              </option>
               <option value="eval/scenarios/py_path_traversal" className="bg-slate-900">
                 Path Traversal (CWE-22)
+              </option>
+              <option value="eval/scenarios/py_path_traversal_zip" className="bg-slate-900">
+                Zip Slip Traversal / Self-Healing (CWE-22)
+              </option>
+              <option value="eval/scenarios/py_insecure_deserialization" className="bg-slate-900">
+                Insecure Deserialization (CWE-502)
+              </option>
+              <option value="eval/scenarios/py_ssrf_webhook" className="bg-slate-900">
+                SSRF Webhook / Self-Healing (CWE-918)
+              </option>
+              <option value="eval/scenarios/py_weak_crypto_md5" className="bg-slate-900">
+                Broken Cryptography MD5 (CWE-327)
+              </option>
+              <option value="eval/scenarios/py_hardcoded_secrets" className="bg-slate-900">
+                Hardcoded Secrets JWT (CWE-798)
+              </option>
+              <option value="eval/scenarios/py_redos_email" className="bg-slate-900">
+                ReDoS Regular Expression (CWE-1333)
+              </option>
+              <option value="eval/scenarios/py_xss_template" className="bg-slate-900">
+                XSS Stored Template (CWE-79)
               </option>
             </select>
           </div>
