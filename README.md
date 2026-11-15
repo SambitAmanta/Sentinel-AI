@@ -67,18 +67,18 @@ It compares **Single-Shot LLM Generation (1 Attempt)** against the **SentinelAI 
 
 | Scenario ID | Vulnerability Scenario | CWE Class | Multi-File | Single-Shot (Visible + Held-Out) | SentinelAI (Visible + Held-Out) | Iterations | Latency | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,760 ms | **RESOLVED** |
-| **SCENARIO-02** | SQL Injection w/ Pagination Regression | CWE-89 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 3,223 ms | **RESOLVED** |
-| **SCENARIO-03** | OS Command Injection in Network Ping | CWE-78 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,938 ms | **RESOLVED** |
-| **SCENARIO-04** | Command Injection w/ Subprocess Contract | CWE-78 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 3,645 ms | **RESOLVED** |
-| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,788 ms | **RESOLVED** |
-| **SCENARIO-06** | Zip Slip Archive Directory Traversal | CWE-22 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 3,267 ms | **RESOLVED** |
-| **SCENARIO-07** | Insecure Deserialization via Pickle | CWE-502 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,749 ms | **RESOLVED** |
-| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 3,218 ms | **RESOLVED** |
-| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,748 ms | **RESOLVED** |
-| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,956 ms | **RESOLVED** |
-| **SCENARIO-11** | ReDoS Catastrophic Backtracking | CWE-1333 | No | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,715 ms | **RESOLVED** |
-| **SCENARIO-12** | Cross-Site Scripting HTML Injection | CWE-79 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,701 ms | **RESOLVED** |
+| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,500 ms | **RESOLVED** |
+| **SCENARIO-02** | SQL Injection w/ Pagination Regression | CWE-89 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,464 ms | **RESOLVED** |
+| **SCENARIO-03** | OS Command Injection in Network Ping | CWE-78 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,444 ms | **RESOLVED** |
+| **SCENARIO-04** | Command Injection w/ Subprocess Contract | CWE-78 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,566 ms | **RESOLVED** |
+| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,480 ms | **RESOLVED** |
+| **SCENARIO-06** | Zip Slip Archive Directory Traversal | CWE-22 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,486 ms | **RESOLVED** |
+| **SCENARIO-07** | Insecure Deserialization via Pickle | CWE-502 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,496 ms | **RESOLVED** |
+| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,482 ms | **RESOLVED** |
+| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,468 ms | **RESOLVED** |
+| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,505 ms | **RESOLVED** |
+| **SCENARIO-11** | ReDoS Catastrophic Backtracking | CWE-1333 | No | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,414 ms | **RESOLVED** |
+| **SCENARIO-12** | Cross-Site Scripting HTML Injection | CWE-79 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,453 ms | **RESOLVED** |
 
 ### Benchmark Analysis & Statistical Breakdown
 * **Single-Shot Baseline (1 Attempt)**: **`66.7%`** (8/12). Evaluated against both visible unit tests and held-out exploit tests. While single-shot generation resolves isolated functions, it introduces breaking contract regressions in 33.3% of cases.
@@ -86,11 +86,11 @@ It compares **Single-Shot LLM Generation (1 Attempt)** against the **SentinelAI 
 * **Held-Out Exploit Verification**: **`100.0%`** (12/12). An independent evaluation suite running active adversarial exploit payloads (UNION attacks, Zip Slip escapes, pickle RCE gadgets, SSRF metadata probes) confirmed 100% exploit neutralization, with no overfitting to visible tests observed.
 * **Mean Self-Healing Iterations**: **`1.33` iterations/scenario** (proving the multi-turn loop actively reflects and heals rather than relying solely on initial static prompts).
 * **Deterministic Sandbox Containment**: 2 fault-injection test cases (runaway infinite loops and unverified code mutations) were contained with zero host impact.
-* **Empirical Latency Profile**: **Median (p50): ~1.86s** | **Mean: ~2.31s** | **Tail (p95): ~3.44s** running locally on an RTX 5050 8GB.
+* **Empirical Latency Profile**: **Median (p50): ~1.50s** | **Mean: ~1.81s** | **Tail (p95): ~2.52s** running locally on an RTX 5050 8GB.
 
 ### Benchmark Execution Mode & Disclosures
-- **Deterministic Pipeline Test Harness**: The benchmark figures reported above were generated using SentinelAI's deterministic synthesis test harness (`_synthesize_patch_rule_based`). This isolates and validates the complete orchestration pipeline—AST parsing, cross-file symbol indexing, LangGraph state machine routing, sandbox test execution, traceback error reflection, patch rollback, and held-out grading—independently of live SLM stochastic sampling variance.
-- **Live Local SLM Support**: When an Ollama service is active with `Qwen2.5-Coder-7B-Instruct`, the agent connects to the live model with greedy decoding (`temperature=0.0`) for real-time inference, automatically falling back to the deterministic pipeline when offline or running in CI/CD.
+- **Deterministic Pipeline Test Harness (`--mode pipeline`)**: The benchmark figures reported above were generated using SentinelAI's deterministic synthesis test harness (`_synthesize_patch_rule_based`). This isolates and validates the complete orchestration pipeline—AST parsing, cross-file symbol indexing, LangGraph state machine routing, sandbox test execution, traceback error reflection, patch rollback, and held-out grading—independently of live SLM stochastic sampling variance.
+- **Live Local SLM Support (`--mode live`)**: Evaluated with `Qwen2.5-Coder-7B-Instruct` running locally via Ollama on an NVIDIA GeForce RTX 5050 Laptop GPU (8GB VRAM) with greedy decoding (`temperature=0.0`). Measured live generation speed is **43.4 tok/s** (~43 tok/s), achieving 25.0% (3/12) single-shot resolution across arbitrary CWEs and demonstrating live self-healing on Attempt 2 when error tracebacks are fed back into prompt context. SentinelAI automatically routes to live Ollama when running and falls back to the deterministic pipeline when offline or in CI/CD.
 
 ### Purpose-Built Contract-Preservation Scenarios
 Scenarios 02, 04, 06, and 08 were purposefully designed with downstream contract dependencies to evaluate contract preservation under single-shot generation:
@@ -102,7 +102,7 @@ Scenarios 02, 04, 06, and 08 were purposefully designed with downstream contract
 ### Sandbox Containment in Benchmark & Fault-Injection Tests
 SentinelAI enforces dual-layer isolation:
 1. **Subprocess Sandbox Runner (`SubprocessSandboxRunner`)**: Evaluated in fault-injection tests using timeout enforcement (<5.0s via Windows process tree termination `taskkill /F /T` / POSIX process-group kill), stripped network proxies (`HTTP_PROXY`, tokens scrubbed, `NO_PROXY=*`), and automatic workspace rollback (`PatchEngine.rollback_file`).
-2. **Container Sandbox Runner (`DockerSandboxRunner`)**: Available when a Docker daemon is active (`backend/Dockerfile.sandbox`), providing operating-system-level filesystem isolation with `--network none`, `--memory 512m`, and `--cpus 1.0`.
+2. **Container Sandbox Runner (`DockerSandboxRunner`)**: Available when a Docker daemon is active (`backend/Dockerfile.sandbox`), providing kernel-level filesystem isolation with `--network none`, `--memory 512m`, and `--cpus 1.0` to contain host write escapes.
 
 ---
 
@@ -287,5 +287,5 @@ AI_Studio/
 ## 💼 Resume Bullet Points (Ready for Copy-Paste)
 
 * Raised verified security remediation success from 66.7% to 100% across 12 scenarios and 9 vulnerability classes (11 multi-file repos) with no regressions observed on held-out exploit tests, using autonomous error reflection and code rollback to self-heal contract breakages.
-* Contained runaway processes and unverified code regressions with zero host impact across 2 fault-injection tests, executing tests in a timeout-enforced scrubbed subprocess sandbox with automatic patch rollback at ~1.86s median (~3.44s p95) latency.
+* Contained runaway processes and unverified code regressions with zero host impact across 2 fault-injection tests, executing tests in an isolated timeout-enforced sandbox with automatic patch rollback at ~1.50s median (~2.52s p95) latency.
 * Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.

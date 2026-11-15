@@ -8,20 +8,53 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-REFACTOR_SYSTEM_PROMPT = """You are SentinelAI, an expert security refactoring engine.
+REFACTOR_SYSTEM_PROMPT = """You are SentinelAI, an expert automated security refactoring engine.
 Your task is to fix the identified security vulnerability in the given code snippet.
 Rules:
 1. ONLY fix the security vulnerability without breaking existing function signatures or callers.
 2. If previous test regression errors are provided, specifically correct the regression.
-3. Return the exact target_code and replacement_code.
+3. Return a valid JSON object with exactly two string keys:
+{
+  "target_code": "<the exact code lines from original code to replace>",
+  "replacement_code": "<the secure replacement code lines>"
+}
+Output ONLY the JSON object. Do not include markdown code blocks or conversational text.
 """
 
 class LocalModelClient:
     """Manages inference requests to local Ollama instance with multi-turn self-healing engine."""
 
-    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None, force_mode: Optional[str] = None):
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
         self.model = model or settings.OLLAMA_MODEL
+        self.force_mode = force_mode
+
+    def is_ollama_available(self) -> bool:
+        """Fast health check to verify if the local Ollama daemon is responsive."""
+        try:
+            with httpx.Client(timeout=0.8) as client:
+                res = client.get(f"{self.base_url}/api/tags")
+                return res.status_code == 200
+        except Exception:
+            return False
+
+    def _extract_patch_json(self, text: str) -> Optional[Dict[str, str]]:
+        """Parses structured JSON patch from model response."""
+        clean = text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"^```(?:json)?\s*", "", clean)
+            clean = re.sub(r"\s*```$", "", clean)
+        clean = clean.strip()
+        try:
+            data = json.loads(clean)
+            if isinstance(data, dict) and "target_code" in data and "replacement_code" in data:
+                return {
+                    "target_code": str(data["target_code"]),
+                    "replacement_code": str(data["replacement_code"]),
+                }
+        except Exception:
+            pass
+        return None
 
     def generate_patch(
         self,
@@ -51,29 +84,41 @@ PREVIOUS PATCH REGRESSION: The previous patch failed tests with the following er
 Fix this regression while maintaining full security!
 """
 
-        # Fast check: If Ollama is responsive (with 1.5s timeout)
-        try:
-            with httpx.Client(timeout=1.5) as client:
-                res = client.post(
-                    f"{self.base_url}/api/generate",
-                    json={
-                        "model": self.model,
-                        "prompt": prompt,
-                        "system": REFACTOR_SYSTEM_PROMPT,
-                        "stream": False,
-                        "options": {"temperature": settings.OLLAMA_TEMPERATURE},
-                    },
-                )
-                if res.status_code == 200:
-                    raw_response = res.json().get("response", "")
-                    cleaned = self._extract_code_from_response(raw_response)
-                    if cleaned:
-                        return {"target_code": code_snippet, "replacement_code": cleaned}
-        except Exception:
-            pass
+        # 1. Try Live Local SLM (Ollama on GPU RTX 5050 8GB)
+        if self.force_mode != "deterministic" and self.is_ollama_available():
+            try:
+                logger.info(f"Connecting to live Ollama SLM [{self.model}] on {self.base_url}...")
+                with httpx.Client(timeout=45.0) as client:
+                    res = client.post(
+                        f"{self.base_url}/api/generate",
+                        json={
+                            "model": self.model,
+                            "prompt": prompt,
+                            "system": REFACTOR_SYSTEM_PROMPT,
+                            "format": "json",
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.0, # Greedy deterministic decoding
+                            },
+                        },
+                    )
+                    if res.status_code == 200:
+                        raw_response = res.json().get("response", "")
+                        parsed_patch = self._extract_patch_json(raw_response)
+                        if parsed_patch and parsed_patch.get("target_code") and parsed_patch.get("replacement_code"):
+                            logger.info("Successfully received live SLM patch from local Ollama.")
+                            return {
+                                "target_code": parsed_patch["target_code"],
+                                "replacement_code": parsed_patch["replacement_code"],
+                                "source": "live_slm",
+                            }
+            except Exception as e:
+                logger.warning(f"Live SLM inference failed or timed out: {e}. Falling back to deterministic synthesis.")
 
-        # Multi-turn Synthesis Engine for reproducible benchmarking
-        return self._synthesize_patch_rule_based(cwe_id, code_snippet, test_failure_trace, vulnerability_message)
+        # 2. Multi-turn Synthesis Engine fallback for offline CI/CD and reproducible testing
+        patch = self._synthesize_patch_rule_based(cwe_id, code_snippet, test_failure_trace, vulnerability_message)
+        patch["source"] = "deterministic_synthesis"
+        return patch
 
     def _extract_code_from_response(self, text: str) -> Optional[str]:
         match = re.search(r"```(?:python)?\s*([\s\S]*?)```", text)

@@ -1,6 +1,7 @@
 """Native Bandit static security scanner for Python codebases."""
 import json
 import logging
+import re
 import subprocess
 import sys
 import time
@@ -106,7 +107,7 @@ class BanditScanner:
                     line_start=item.get("line_number", 1),
                     line_end=item.get("line_range", [item.get("line_number", 1)])[-1],
                     message=item.get("issue_text", "Security issue detected"),
-                    code_snippet=item.get("code", "").strip(),
+                    code_snippet="\n".join(re.sub(r"^\s*\d+\s+", "", l) for l in item.get("code", "").splitlines()).strip(),
                 )
                 findings.append(finding)
         except Exception as e:

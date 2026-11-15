@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 class SentinelAgent:
     """Orchestrates the autonomous security audit and self-healing refactoring loop."""
 
-    def __init__(self, bandit_exec: str = None, pytest_exec: str = None):
+    def __init__(self, bandit_exec: str = None, pytest_exec: str = None, force_mode: str = None):
         self.scanner = BanditScanner(bandit_executable=bandit_exec)
         self.symbol_graph = SymbolGraph()
         self.patch_engine = PatchEngine()
         self.test_runner = TestRunner(pytest_executable=pytest_exec)
-        self.model_client = LocalModelClient()
+        self.model_client = LocalModelClient(force_mode=force_mode)
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -159,6 +159,7 @@ class SentinelAgent:
             if state.iteration >= state.max_iterations:
                 state.add_log(f"🛑 Max self-healing iterations reached for [{finding.id}]. Marking FAILED.")
                 finding.status = FindingStatus.FAILED
+                finding.iterations_taken = state.iteration
                 state.current_finding_index += 1
 
         return {
