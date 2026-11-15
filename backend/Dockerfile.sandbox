@@ -1,0 +1,22 @@
+# Hardened Docker Sandbox Container for SentinelAI Test Execution
+FROM python:3.11-slim
+
+# Avoid writing .pyc files & buffer stdout
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /sandbox
+
+# Install minimal test verification dependencies
+RUN pip install --no-cache-dir pytest==9.2.0
+
+# Create a non-privileged sandbox user
+RUN useradd -m -u 1000 sandboxuser && \
+    chown -R sandboxuser:sandboxuser /sandbox
+
+USER sandboxuser
+
+# Default command: run pytest on mounted workspace
+ENTRYPOINT ["pytest", "-q", "--tb=short", "-p", "no:langsmith"]
+

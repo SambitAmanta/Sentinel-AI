@@ -21,16 +21,29 @@ class TestRunResult:
     timed_out: bool = False
 
 class TestRunner:
-    """Executes test suites in an isolated environment with network scrubbing and process tree containment."""
+    """Executes test suites in an isolated environment with network scrubbing, container containment, and process tree termination."""
     __test__ = False
 
-    def __init__(self, timeout_seconds: int = 15, pytest_executable: Optional[str] = None):
+    def __init__(
+        self,
+        timeout_seconds: int = 15,
+        pytest_executable: Optional[str] = None,
+        use_docker: bool = False,
+    ):
         self.timeout_seconds = timeout_seconds
+        self.use_docker = use_docker
         if pytest_executable:
             self.pytest_exec = pytest_executable
         else:
             venv_pytest = Path(sys.prefix) / "Scripts" / "pytest.exe"
             self.pytest_exec = str(venv_pytest) if venv_pytest.exists() else "pytest"
+
+        # Initialize optional Docker container runner
+        try:
+            from app.sandbox.docker_sandbox import DockerSandboxRunner
+            self._docker_runner = DockerSandboxRunner(timeout_seconds=timeout_seconds)
+        except Exception:
+            self._docker_runner = None
 
     def _get_scrubbed_env(self) -> Dict[str, str]:
         """Scrubs out sensitive environment variables and restricts network access."""
@@ -51,6 +64,11 @@ class TestRunner:
 
     def run_tests(self, target_dir: str | Path, test_file: Optional[str] = None) -> TestRunResult:
         target_path = Path(target_dir).resolve()
+
+        # If Docker container mode is enabled and available, dispatch to container runner
+        if self.use_docker and self._docker_runner and self._docker_runner.docker_available:
+            return self._docker_runner.run_tests_in_container(target_path)
+
         start = time.time()
 
         cmd = [self.pytest_exec, "-q", "--tb=short", "-p", "no:langsmith"]
