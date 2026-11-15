@@ -103,7 +103,9 @@ Fix this regression while maintaining full security!
                         },
                     )
                     if res.status_code == 200:
-                        raw_response = res.json().get("response", "")
+                        data = res.json()
+                        raw_response = data.get("response", "")
+                        eval_count = data.get("eval_count", 0)
                         parsed_patch = self._extract_patch_json(raw_response)
                         if parsed_patch and parsed_patch.get("target_code") and parsed_patch.get("replacement_code"):
                             logger.info("Successfully received live SLM patch from local Ollama.")
@@ -111,6 +113,7 @@ Fix this regression while maintaining full security!
                                 "target_code": parsed_patch["target_code"],
                                 "replacement_code": parsed_patch["replacement_code"],
                                 "source": "live_slm",
+                                "eval_tokens": eval_count,
                             }
             except Exception as e:
                 logger.warning(f"Live SLM inference failed or timed out: {e}. Falling back to deterministic synthesis.")
