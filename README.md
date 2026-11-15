@@ -79,11 +79,11 @@ To prevent conflation between live model sampling and deterministic pipeline mec
 
 | Dataset / Evaluation Layer | Scenarios | Single-Shot Pass Rate (Attempt 1) | SentinelAI Loop Pass Rate (≤3 Attempts) | Healing Gain | Median Latency (p50) | Tail Latency (p95) | Primary Validation Goal |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Live SLM: Fresh Unseen Eval Set** | 8 | **62.5%** (5/8) | **87.5%** (7/8) | **+25.0%** | **~5.5s** | **~18.2s** | Proves out-of-distribution generalization |
-| **Live SLM: Development Set** | 12 | **50.0%** (6/12) | **58.3%** (7/12) | **+8.3%** | **~5.8s** | **~20.1s** | Evaluates purpose-built contract bounds |
-| **Live SLM: Combined Full Suite** | **20** | **55.0%** (11/20) | **70.0%** (14/20) | **+15.0%** | **~5.7s** | **~18.4s** | Full consumer GPU generative refactoring |
-| **Deterministic Pipeline Harness (Dev)** | 12 | **66.7%** (8/12) | **100.0%** (12/12) | **+33.3%** | **~2.09s** | **~3.44s** | Validates orchestration, AST context & rollback |
-| **Deterministic Pipeline Harness (Eval)** | 8 | **87.5%** (7/8) | **100.0%** (8/8) | **+12.5%** | **~2.05s** | **~4.01s** | Deterministic generalization verification |
+| **Live SLM: Fresh Unseen Eval Set** | 8 | **62.5%** (5/8) | **87.5%** (7/8) | **+2 scenarios** (5/8 → 7/8) | **~5.9s** (5,856.5 ms) | **~18.0s** (17,986.5 ms) | Evaluates unseen scenarios from same CWE families |
+| **Live SLM: Development Set** | 12 | **50.0%** (6/12) | **58.3%** (7/12) | **+1 scenario** (6/12 → 7/12) | **~6.3s** (6,307.0 ms) | **~20.6s** (20,584.1 ms) | Evaluates purpose-built contract bounds |
+| **Live SLM: Combined Full Suite** | **20** | **55.0%** (11/20) | **70.0%** (14/20) | **+3 scenarios** (11/20 → 14/20) | **~6.0s** (6,026.0 ms) | **~18.6s** (18,605.4 ms) | Full consumer GPU generative refactoring |
+| **Deterministic Pipeline Harness (Dev)** | 12 | **66.7%** (8/12) | **100.0%** (12/12) | **+4 scenarios** (8/12 → 12/12) | **~2.09s** (2,088.1 ms) | **~3.44s** (3,441.6 ms) | Validates orchestration, AST context & rollback |
+| **Deterministic Pipeline Harness (Eval)** | 8 | **87.5%** (7/8) | **100.0%** (8/8) | **+1 scenario** (7/8 → 8/8) | **~2.05s** (2,047.3 ms) | **~4.01s** (4,013.6 ms) | Deterministic generalization verification |
 
 ---
 
@@ -92,11 +92,11 @@ To prevent conflation between live model sampling and deterministic pipeline mec
 Executed locally via Ollama against an NVIDIA GeForce RTX 5050 Laptop GPU (8GB VRAM) with greedy decoding (`temperature=0.0`).
 
 #### A. Fresh Unseen Evaluation Test Set (8 Scenarios)
-Evaluated to confirm that remediation generalizes beyond the development set:
+Evaluated to confirm that remediation generalizes beyond the development set across the same 8 CWE families:
 
 | Scenario ID | Vulnerability Scenario | CWE Class | Multi-File | Single-Shot (Attempt 1) | Loop Pass (≤3 Attempts) | Iterations | Latency | Attempt 1 Status & Autonomous Reflection |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **SCENARIO-13** | Customer Search SQLi | CWE-89 | Yes | `FAIL` | `FAIL` | 3 | 16.5s | Subsumed execute mismatch; retried 3x |
+| **SCENARIO-13** | Customer Search SQLi | CWE-89 | Yes | `FAIL` | `FAIL` | 3 | 16.5s | Subsumed execute mismatch (see Known Limitations) |
 | **SCENARIO-14** | Archive Backup Command Injection | CWE-78 | Yes | `FAIL` | `PASS (Held-Out Verified)` | 3 | 17.6s | **Healed on Attempt 3**: Converted `shell=True` to safe argument vector |
 | **SCENARIO-15** | Document Download Path Traversal | CWE-22 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Implemented `.resolve()` & `.is_relative_to()` |
 | **SCENARIO-16** | YAML Insecure Deserialization | CWE-502 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.3s | **Resolved on Attempt 1**: Switched `yaml.load` to `yaml.safe_load` |
@@ -124,19 +124,23 @@ Contains the 4 purpose-built contract regression scenarios (02, 04, 06, 08):
 | **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Generic resolver injected `import html` |
 
 #### Hardware Profiling & Latency Breakdown (RTX 5050 8GB VRAM)
-Telemetry extracted directly from Ollama response JSON metrics (`eval_duration`, `prompt_eval_duration`, `load_duration`) on local hardware:
-* **Token Generation Throughput**: **`43.4 – 62.1 tok/s`** (~868.9 ms for ~54 tokens).
-* **Prompt AST Context Evaluation**: **`102.1 – 210.0 ms`** (AST symbol slice, callers, and driver context).
-* **Model VRAM Load Duration**: **`4.8 ms`** warm (~5.96 GB VRAM resident) / ~6.8s cold start.
-* **Ephemeral Subprocess Pytest Sandbox Execution**: **`~850 ms`** per iteration.
-* **Post-Patch Security Verification Re-Scan**: **`~180 ms`** static AST / Bandit confirmation.
-* **Total Turnaround Time (Per Attempt)**: **`~5.3s – 6.5s`**.
+Empirical component profiling accounting for the complete ~5.8s – 6.3s single-attempt turnaround (Median **`~6.0s`**):
+* **Model Token Generation (GPU Compute)**: **`~1.00s`** (~1,005 ms) generating ~54 tokens at 43.4–62.1 tok/s.
+* **Prompt AST Context Evaluation (GPU Compute)**: **`~0.15s`** (~91–200 ms) processing AST context and callers.
+* **Model VRAM Load Duration (Warm)**: **`~5.2 ms`** resident in GPU VRAM (~5.96 GB allocated).
+* **Ollama Grammar JSON Sampling & IPC Overhead**: **`~3.17s`** (~3,172 ms) for schema-constrained token filtering (`format: "json"`) and local HTTP transport.
+* **Subprocess Pytest Runner Execution**: **`~0.99s`** (~987 ms) ephemeral process spawn, test execution, and report extraction.
+* **Static Vulnerability Scanning**: **`~0.58s`** (~584 ms) total across initial Bandit scan (~302 ms) and post-patch Security Gate re-scan (~282 ms).
+* **Tree-sitter AST & Patch Engine**: **`~0.01s`** (3.2 ms) symbol extraction and generic `sys.stdlib_module_names` import resolution.
 
-#### Unified Trajectory Derivation & Elimination of Contradictions
+#### Unified Trajectory Derivation & Methodology Protocol
 * Single-shot is defined strictly as **Attempt 1 of the agent loop**, guaranteeing identical execution trajectories.
-* Scenario 04 failed Attempt 1 due to telemetry format contract breaking and was healed on Attempt 3 via traceback reflection (`Single: FAIL`, `Loop: PASS`, 3 iters).
-* Scenario 07 succeeded on Attempt 1 because the generic standard library import resolver automatically detected `json.loads` and injected `import json` (`Single: PASS`, `Loop: PASS`, 1 iter).
-* Contradictions where single-shot fails while the loop reports 1 iteration, or where single-shot passes while the loop reports 3 iterations, are eliminated by design.
+* The loop halts when Attempt 1 passes **visible repository tests and the post-patch Security Gate**. Independent **held-out exploit tests are graded strictly post-hoc** (the agent never observes them during its loop).
+* If Attempt 1 passes visible tests and the Security Gate, the loop halts at 1 iteration. Held-out tests are then evaluated:
+  * If held-out passes: both Single-Shot and SentinelAI Loop are graded `PASS` at 1 iteration (e.g. Scenarios 01, 02, 07, 09, 10, 12, 15, 16, 17, 18, 20).
+  * If held-out fails: both Single-Shot and SentinelAI Loop are graded `FAIL` at 1 iteration (e.g. Scenario 11 ReDoS, where the regex passed visible format tests and the security gate did not detect catastrophic backtracking).
+* Scenarios 04, 14, and 19 failed Attempt 1 and were autonomously healed on retry via traceback reflection.
+* **Known Limitation (Scenario 13)**: In Scenario 13 (CWE-89), redundant execution subsumption had a line-formatting mismatch in `PatchEngine`. Left deliberately unpatched so the fresh evaluation set remains genuinely withheld and untuned.
 
 ---
 
@@ -337,12 +341,7 @@ AI_Studio/
 
 ## 💼 Resume Bullet Points (Ready for Copy-Paste)
 
-### Core Impact Bullets (Strict 3-Bullet Rule: Capabilities + 3 Core Technologies)
-* Built an autonomous codebase security remediation loop evaluated across 20 benchmark scenarios and 9 vulnerability classes (19 multi-file repos); lifted verified fixes from 55.0% to 70.0% on a local 7B SLM (including 62.5% to 87.5% on fresh unseen evaluation targets) and 66.7% to 100% in a deterministic harness with zero test regressions on held-out exploit suites via multi-turn error reflection.
-* Contained runaway processes and unverified code regressions with zero host impact across fault-injection suites, executing test suites in a timeout-enforced, environment-scrubbed subprocess sandbox with automatic patch rollback at ~2.08s harness (~5.7s live) median latency.
-* Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.
-
-### Alternative Model-Centric Bullets
-* Evaluated a local Qwen2.5-Coder-7B SLM (43.4–62.1 tok/s on an 8GB GPU), lifting verified fixes from 11/20 (55.0%) to 14/20 (70.0%)—including 5/8 (62.5%) to 7/8 (87.5%) on fresh unseen scenarios—across 9 CWE classes with held-out exploit grading, orchestrating a LangGraph scan → patch → test → reflect loop grounded in Bandit findings and a Tree-sitter symbol graph.
-* Verified orchestration with a deterministic 20-scenario harness (20/20 held-out pass) and fault-injection suites: runaway test processes terminated in under 5s and failing patches rolled back with zero host file modification, using a timeout-enforced, environment-scrubbed subprocess sandbox.
-* Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.
+### AI Code Security & Refactoring Agent | Python, FastAPI, LangGraph, Tree-sitter, React/TypeScript
+* Lifted a local Qwen2.5-Coder-7B from 55% to 70% verified fixes (14/20 scenarios, 9 CWE classes, held-out exploit grading) with a LangGraph scan → patch → test → reflect pipeline (Tree-sitter symbol graph, Bandit/AST security gate, ≤3 attempts), including 5/8 → 7/8 on 8 scenarios withheld from development.
+* Doubled development-set single-shot success from 25% to 50% with driver-aware prompt grounding and a generic stdlib import resolver, and contained runaway or failing patches (<5s kill, automatic rollback, zero host-file modification) in a timeout-enforced, environment-scrubbed subprocess sandbox.
+* Delivered a React/TypeScript studio (Monaco diff, live reasoning stream) over FastAPI Server-Sent Events, running offline on an 8GB GPU at 43–62 tok/s with ~6s median loop latency.
