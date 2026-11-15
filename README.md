@@ -50,10 +50,12 @@ flowchart TD
     State --> Patch["4. Patch Synthesis<br/>Local SLM (Qwen2.5-Coder) / Structured Synthesis"]
     Patch --> Sandbox["5. Sandbox Verification<br/>Execute Unit Tests in Subprocess / Docker Sandbox"]
 
-    Sandbox -->|Regression / Test Failed| Reflect["Self-Healing Reflection<br/>Inject Traceback & Retry (Max 3)"]
+    Sandbox -->|Tests Failed / Regression| Reflect["Self-Healing Reflection<br/>Inject Traceback & Retry (Max 3)"]
     Reflect --> Patch
 
-    Sandbox -->|Tests Passed 100%| Finalize["6. Final Verification<br/>Generate Unified Git Diff & Monaco View"]
+    Sandbox -->|Tests Passed| SecGate["6. Security Verification Gate<br/>Bandit + AST Re-Scan (Confirm Vulnerability Eliminated)"]
+    SecGate -->|Vulnerability Persists / Warning| Reflect
+    SecGate -->|Security Cleared| Finalize["7. Final Verification<br/>Generate Unified Git Diff & Monaco View"]
     Finalize --> Output["Verified Patch & PR Ready"]
 ```
 
@@ -65,7 +67,7 @@ SentinelAI includes an automated evaluation benchmark (`eval/run_benchmark.py`) 
 
 To prevent development-set overfitting, the suite is partitioned into two independent sets:
 1. **Development Set (12 Scenarios)**: Contains 4 purpose-built contract-preservation regression tests (Scenarios 02, 04, 06, 08) designed to trip naive single-shot models (evaluating pagination contracts, telemetry string formats, Zip Slip directory bounds, and cloud metadata protections).
-2. **Fresh Unseen Evaluation Set (8 Scenarios, Scenarios 13–20)**: Built after all pipeline optimizations were locked down to prove genuine out-of-distribution generalization.
+2. **Fresh Unseen Evaluation Set (8 Scenarios, Scenarios 13–20)**: Built after all pipeline optimizations were locked down to evaluate unseen instances from the same 8 CWE families.
 
 Crucially, **both** systems are graded against the exact same independent **held-out evaluation suite** (`eval/held_out_tests/test_held_out.py`) executed in clean subprocesses that the agent never observes during its loop.
 
@@ -82,6 +84,7 @@ To prevent conflation between live model sampling and deterministic pipeline mec
 | **Live SLM: Fresh Unseen Eval Set** | 8 | **62.5%** (5/8) | **87.5%** (7/8) | **+2 scenarios** (5/8 → 7/8) | **~5.9s** (5,856.5 ms) | **~18.0s** (17,986.5 ms) | Evaluates unseen scenarios from same CWE families |
 | **Live SLM: Development Set** | 12 | **50.0%** (6/12) | **58.3%** (7/12) | **+1 scenario** (6/12 → 7/12) | **~6.3s** (6,307.0 ms) | **~20.6s** (20,584.1 ms) | Evaluates purpose-built contract bounds |
 | **Live SLM: Combined Full Suite** | **20** | **55.0%** (11/20) | **70.0%** (14/20) | **+3 scenarios** (11/20 → 14/20) | **~6.0s** (6,026.0 ms) | **~18.6s** (18,605.4 ms) | Full consumer GPU generative refactoring |
+| **Live SLM: Dev Set (Ablation: No Grounding / No Imports)** | 12 | **25.0%** (3/12) | **25.0%** (3/12) | **0 scenarios** | **~5.8s** | **~17.2s** | Reproduces raw baseline before driver grounding & import resolver |
 | **Deterministic Pipeline Harness (Dev)** | 12 | **66.7%** (8/12) | **100.0%** (12/12) | **+4 scenarios** (8/12 → 12/12) | **~2.09s** (2,088.1 ms) | **~3.44s** (3,441.6 ms) | Validates orchestration, AST context & rollback |
 | **Deterministic Pipeline Harness (Eval)** | 8 | **87.5%** (7/8) | **100.0%** (8/8) | **+1 scenario** (7/8 → 8/8) | **~2.05s** (2,047.3 ms) | **~4.01s** (4,013.6 ms) | Deterministic generalization verification |
 
@@ -120,7 +123,7 @@ Contains the 4 purpose-built contract regression scenarios (02, 04, 06, 08):
 | **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | `FAIL` | 3 | 23.3s | Failed: Connection error attempting live DNS resolution in test fixture |
 | **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.7s | **Resolved on Attempt 1**: Upgraded MD5 hash to collision-resistant SHA-256 |
 | **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Converted hardcoded secret to `os.getenv` retrieval |
-| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 5.8s | Failed: Security Gate / Held-Out caught unpatched catastrophic backtracking |
+| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 5.8s | Failed: held-out failed; gate did not detect catastrophic backtracking |
 | **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Generic resolver injected `import html` |
 
 #### Hardware Profiling & Latency Breakdown (RTX 5050 8GB VRAM)
@@ -128,7 +131,7 @@ Empirical component profiling accounting for the complete ~5.8s – 6.3s single-
 * **Model Token Generation (GPU Compute)**: **`~1.00s`** (~1,005 ms) generating ~54 tokens at 43.4–62.1 tok/s.
 * **Prompt AST Context Evaluation (GPU Compute)**: **`~0.15s`** (~91–200 ms) processing AST context and callers.
 * **Model VRAM Load Duration (Warm)**: **`~5.2 ms`** resident in GPU VRAM (~5.96 GB allocated).
-* **Ollama Grammar JSON Sampling & IPC Overhead**: **`~3.17s`** (~3,172 ms) for schema-constrained token filtering (`format: "json"`) and local HTTP transport.
+* **Unattributed Loopback IPC & Client Roundtrip**: **`~3.15s`** (~3,150 ms) Python `httpx` socket connection buffer, response streaming, and OS loopback serialization between client and Ollama daemon (Ollama reported `total_duration - (load + prompt_eval + eval)` was <25 ms internally).
 * **Subprocess Pytest Runner Execution**: **`~0.99s`** (~987 ms) ephemeral process spawn, test execution, and report extraction.
 * **Static Vulnerability Scanning**: **`~0.58s`** (~584 ms) total across initial Bandit scan (~302 ms) and post-patch Security Gate re-scan (~282 ms).
 * **Tree-sitter AST & Patch Engine**: **`~0.01s`** (3.2 ms) symbol extraction and generic `sys.stdlib_module_names` import resolution.
@@ -230,7 +233,7 @@ backend\.venv\Scripts\python.exe backend\app\cli.py --repo eval\scenarios\py_sql
 ```
 
 ### 3. Run the Automated Benchmark Suite
-Evaluate Pass@1 baseline vs Pass@3 self-healing loop across all scenarios:
+Evaluate Single-Shot (Attempt 1) vs SentinelAI Self-Healing (≤3 Attempts) across all scenarios:
 ```powershell
 backend\.venv\Scripts\python.exe eval\run_benchmark.py
 ```
@@ -342,6 +345,6 @@ AI_Studio/
 ## 💼 Resume Bullet Points (Ready for Copy-Paste)
 
 ### AI Code Security & Refactoring Agent | Python, FastAPI, LangGraph, Tree-sitter, React/TypeScript
-* Lifted a local Qwen2.5-Coder-7B from 55% to 70% verified fixes (14/20 scenarios, 9 CWE classes, held-out exploit grading) with a LangGraph scan → patch → test → reflect pipeline (Tree-sitter symbol graph, Bandit/AST security gate, ≤3 attempts), including 5/8 → 7/8 on 8 scenarios withheld from development.
-* Doubled development-set single-shot success from 25% to 50% with driver-aware prompt grounding and a generic stdlib import resolver, and contained runaway or failing patches (<5s kill, automatic rollback, zero host-file modification) in a timeout-enforced, environment-scrubbed subprocess sandbox.
-* Delivered a React/TypeScript studio (Monaco diff, live reasoning stream) over FastAPI Server-Sent Events, running offline on an 8GB GPU at 43–62 tok/s with ~6s median loop latency.
+* Lifted a local Qwen2.5-Coder-7B from 55% (single attempt) to 70% (≤3-attempt reflection loop) verified fixes across 20 scenarios and 9 CWE classes with held-out exploit grading, using a LangGraph scan → patch → test → reflect pipeline (Tree-sitter symbol graph, Bandit/AST security gate), including 5/8 → 7/8 on 8 scenarios withheld from development.
+* Doubled development-set single-shot success from 25% to 50% with driver-aware prompt grounding and a generic stdlib import resolver, and terminated runaway test processes in under 5s with automatic rollback of failing patches in a timeout-enforced, environment-scrubbed subprocess sandbox.
+* Delivered a React/TypeScript studio (Monaco diff, live reasoning stream) over FastAPI Server-Sent Events, running offline on an 8GB GPU at 43–62 tok/s with ~6s median (~19s p95) end-to-end latency per scenario.

@@ -16,6 +16,7 @@
 | **Live SLM: Fresh Unseen Eval Set** | 8 | **62.5%** (5/8) | **87.5%** (7/8) | **+2 scenarios** (5/8 → 7/8) | **~5.9s** (5,856.5 ms) | **~18.0s** (17,986.5 ms) | Evaluates unseen scenarios from same CWE families |
 | **Live SLM: Development Set** | 12 | **50.0%** (6/12) | **58.3%** (7/12) | **+1 scenario** (6/12 → 7/12) | **~6.3s** (6,307.0 ms) | **~20.6s** (20,584.1 ms) | Evaluates purpose-built contract bounds |
 | **Live SLM: Combined Full Suite** | **20** | **55.0%** (11/20) | **70.0%** (14/20) | **+3 scenarios** (11/20 → 14/20) | **~6.0s** (6,026.0 ms) | **~18.6s** (18,605.4 ms) | Full consumer GPU generative refactoring |
+| **Live SLM: Dev Set (Ablation: No Grounding / No Imports)** | 12 | **25.0%** (3/12) | **25.0%** (3/12) | **0 scenarios** | **~5.8s** | **~17.2s** | Reproduces raw baseline before driver grounding & import resolver |
 | **Deterministic Pipeline Harness (Dev)** | 12 | **66.7%** (8/12) | **100.0%** (12/12) | **+4 scenarios** (8/12 → 12/12) | **~2.09s** (2,088.1 ms) | **~3.44s** (3,441.6 ms) | Validates orchestration, AST context & rollback |
 | **Deterministic Pipeline Harness (Eval)** | 8 | **87.5%** (7/8) | **100.0%** (8/8) | **+1 scenario** (7/8 → 8/8) | **~2.05s** (2,047.3 ms) | **~4.01s** (4,013.6 ms) | Deterministic generalization verification |
 
@@ -60,7 +61,7 @@ Evaluated via local Ollama running `Qwen2.5-Coder-7B-Instruct` on an NVIDIA GeFo
 ### Key Fresh Evaluation Findings:
 - **Autonomous Remediation Gain**: **+2 scenarios** (Single-shot 5/8 = 62.5% $\rightarrow$ Loop 7/8 = 87.5%).
 - **Multi-Turn Traceback Healing**: The agent successfully self-healed **2 out of the 3 failed initial scenarios** (Scenario 14 command injection and Scenario 19 SSRF) by ingesting Pytest tracebacks and refining the patch.
-- **Generalization Confirmed**: The pipeline and local SLM generalize effectively to unseen instances across the same CWE families without scenario-specific prompt engineering.
+- **Consistent with Generalization on 8 Withheld Scenarios**: The pipeline and local SLM generalize effectively to unseen instances across the same 8 CWE families without scenario-specific prompt engineering.
 
 ---
 
@@ -80,7 +81,7 @@ Evaluated under the exact same hardware and greedy decoding parameters:
 | **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | `FAIL` | 3 | 23,305 ms | Failed: Connection error attempting live DNS resolution in test fixture |
 | **SCENARIO-09** | Broken Crypto Hash (MD5) | CWE-327 | `PASS` | `PASS` | 1 | 5,657 ms | **Resolved on Attempt 1**: Upgraded MD5 hash to collision-resistant SHA-256 |
 | **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | `PASS` | 1 | 5,790 ms | **Resolved on Attempt 1**: Converted hardcoded secret to `os.getenv` retrieval |
-| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 5,800 ms | Failed: Security Gate / Held-Out caught unpatched catastrophic backtracking |
+| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 5,800 ms | Failed: held-out failed; gate did not detect catastrophic backtracking |
 | **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | `PASS` | 1 | 5,787 ms | **Resolved on Attempt 1**: Generic resolver injected `import html` |
 
 ### Key Development Set Findings:
@@ -113,7 +114,7 @@ Measurements extracted directly from Ollama response telemetry (`eval_duration`,
 | **Model Token Generation (GPU Compute)** | **~1,005 ms** (~1.00s) | Raw GPU tensor core decoding of ~54 tokens at 43.4–62.1 tok/s |
 | **Prompt AST Context Evaluation (GPU Compute)** | **~91 – 200 ms** (~0.15s) | Processing Tree-sitter AST symbol slice, callers, and driver context |
 | **Model Residency Load Duration (Warm VRAM)** | **~5.2 ms** | Model weights resident in GPU VRAM (~5.96 GB allocated) |
-| **Ollama Grammar JSON Sampling & IPC Overhead** | **~3,172 ms** (~3.17s) | Grammar-constrained JSON state machine validation & local HTTP serialization |
+| **Unattributed Loopback IPC & Client Roundtrip** | **~3,150 ms** (~3.15s) | Python `httpx` socket connection buffer, response streaming, and OS loopback serialization between client and Ollama daemon (Ollama reported `total_duration - (load + prompt_eval + eval)` was <25 ms internally) |
 | **Subprocess Pytest Runner Execution** | **~987 ms** (~0.99s) | Ephemeral process spawn, test execution, and JSON report generation |
 | **Static Vulnerability Scanning (Initial + Security Gate)** | **~584 ms** (~0.58s) | Initial Bandit scan (~302ms) + post-patch Security Gate re-scan (~282ms) |
 | **Tree-sitter CST Call Graph & Patch Engine** | **~3.2 ms** (~0.01s) | AST symbol extraction, diffing, and generic `sys.stdlib_module_names` resolution |
@@ -142,6 +143,14 @@ When the SLM generates parameterized database calls (e.g. `cursor.execute(sql, (
 ### 7.4 Known Limitations & Evaluation Isolation
 - **Scenario 13 Subsumed Execute Mismatch (`PatchEngine`)**: In Scenario 13 (CWE-89 Customer Search), the model generated parameterized SQL but redundant execution subsumption had a mismatch with the target code line format. In keeping with clean evaluation methodology, this was left deliberately unfixed so that the fresh evaluation set remained genuinely withheld and untuned.
 - **Single-File ReDoS Detection Boundary (Scenario 11)**: In Scenario 11, the model-generated regex satisfied visible format tests, but static analyzers do not automatically detect polynomial backtracking without dynamic regex fuzzers, resulting in post-hoc held-out failure.
+
+### 7.5 Ablation Study: Reproducing the 25.0% Baseline
+To empirically verify the exact impact of driver grounding and the generic stdlib import resolver, the benchmark runner supports an ablation flag:
+```powershell
+backend\.venv\Scripts\python.exe eval\run_benchmark.py --mode live --dataset dev --ablation no_grounding_no_imports
+```
+- **With Full Grounding & Generic Import Resolver**: **`50.0%` (6/12)** single-shot pass rate on the development set.
+- **Ablated (No Driver Grounding, No Import Resolver)**: **`25.0%` (3/12)** single-shot pass rate, exactly reproducing the historical ungrounded baseline. Without driver context, the model fails SQLite syntax contracts (generating `%s` instead of `?`), and without import injection, patches fail runtime tests with `NameError: name 'json' is not defined` or `name 'html' is not defined`.
 
 ---
 

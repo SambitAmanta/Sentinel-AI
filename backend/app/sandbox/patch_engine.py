@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 class PatchEngine:
     """Safely applies code modifications, produces unified diffs, and provides rollback capabilities."""
 
-    def __init__(self):
+    def __init__(self, enable_import_injection: bool = True):
         # file_path -> original_content
         self._backup_store: Dict[str, str] = {}
+        self.enable_import_injection = enable_import_injection
 
     def backup_file(self, file_path: str | Path) -> None:
         p = Path(file_path).resolve()
@@ -109,7 +110,8 @@ class PatchEngine:
                     target_norm = target_norm + m.group(0)
 
         new_content = content_norm.replace(target_norm, replacement_norm, 1)
-        new_content = self._inject_missing_imports(new_content, replacement_norm)
+        if self.enable_import_injection:
+            new_content = self._inject_missing_imports(new_content, replacement_norm)
         p.write_text(new_content, encoding="utf-8")
 
         diff = self.generate_diff(content_norm, new_content, filename=p.name)

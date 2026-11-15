@@ -227,7 +227,7 @@ def percentile(data, pct):
     d = k - f
     return data[f] + d * (data[c] - data[f])
 
-def run_benchmark(mode: str = "pipeline", dataset: str = "dev"):
+def run_benchmark(mode: str = "pipeline", dataset: str = "dev", ablation: str = "none"):
     if dataset == "dev":
         target_scenarios = DEV_SCENARIOS
         dataset_label = "Development Set (12 Scenarios across 9 CWEs)"
@@ -238,9 +238,14 @@ def run_benchmark(mode: str = "pipeline", dataset: str = "dev"):
         target_scenarios = ALL_SCENARIOS
         dataset_label = "Full Suite (20 Scenarios across 9 CWEs)"
 
+    enable_grounding = (ablation != "no_grounding_no_imports")
+    enable_import_injection = (ablation != "no_grounding_no_imports")
+    ablation_label = "Standard (Full Grounding + Generic Import Resolver)" if enable_grounding else "Ablation (No Driver Grounding, No Import Resolver)"
+
     console.print(Panel(
         f"[bold cyan]SentinelAI Empirical Benchmark Evaluation Suite[/bold cyan]\n"
         f"Dataset: [bold yellow]{dataset_label}[/bold yellow]\n"
+        f"Ablation State: [bold magenta]{ablation_label}[/bold magenta]\n"
         f"Target: Single-Shot (1 Attempt) vs SentinelAI Self-Healing (≤3 Attempts with Test Feedback)\n"
         f"Grading: Visible Repo Unit Tests + Held-Out Exploit Neutralization & Non-Overfitting Tests\n"
         f"Mode: {'Deterministic Architecture Test Harness' if mode == 'pipeline' else 'Live Local SLM (Qwen2.5-Coder-7B)'}\n"
@@ -263,7 +268,11 @@ def run_benchmark(mode: str = "pipeline", dataset: str = "dev"):
             shutil.copytree(sc_path, tmp_s_path, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
             start_time = time.time()
-            agent = SentinelAgent(force_mode="deterministic" if mode == "pipeline" else "live")
+            agent = SentinelAgent(
+                force_mode="deterministic" if mode == "pipeline" else "live",
+                enable_grounding=enable_grounding,
+                enable_import_injection=enable_import_injection,
+            )
             state = AgentState(repository_path=str(tmp_s_path))
             final_state = agent.graph.invoke(state)
             sentinel_duration_ms = (time.time() - start_time) * 1000
@@ -374,5 +383,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SentinelAI Benchmark Runner")
     parser.add_argument("--mode", choices=["pipeline", "live"], default="pipeline", help="Benchmark execution mode: pipeline (deterministic architecture test harness) or live (Ollama Qwen2.5-Coder SLM)")
     parser.add_argument("--dataset", choices=["dev", "eval", "all"], default="dev", help="Dataset to evaluate: dev (12 scenarios), eval (8 fresh unseen scenarios), all (20 scenarios)")
+    parser.add_argument("--ablation", choices=["none", "no_grounding_no_imports"], default="none", help="Ablation mode: 'no_grounding_no_imports' disables driver grounding and stdlib import injection (reproducing historical 25% baseline)")
     args = parser.parse_args()
-    run_benchmark(mode=args.mode, dataset=args.dataset)
+    run_benchmark(mode=args.mode, dataset=args.dataset, ablation=args.ablation)

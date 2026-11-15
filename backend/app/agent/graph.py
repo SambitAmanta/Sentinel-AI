@@ -18,10 +18,19 @@ logger = logging.getLogger(__name__)
 class SentinelAgent:
     """Orchestrates the autonomous security audit and self-healing refactoring loop."""
 
-    def __init__(self, bandit_exec: str = None, pytest_exec: str = None, force_mode: str = None):
+    def __init__(
+        self,
+        bandit_exec: str = None,
+        pytest_exec: str = None,
+        force_mode: str = None,
+        enable_grounding: bool = True,
+        enable_import_injection: bool = True,
+    ):
+        self.enable_grounding = enable_grounding
+        self.enable_import_injection = enable_import_injection
         self.scanner = BanditScanner(bandit_executable=bandit_exec)
         self.symbol_graph = SymbolGraph()
-        self.patch_engine = PatchEngine()
+        self.patch_engine = PatchEngine(enable_import_injection=enable_import_injection)
         self.test_runner = TestRunner(pytest_executable=pytest_exec)
         self.model_client = LocalModelClient(force_mode=force_mode)
         self.graph = self._build_graph()
@@ -104,10 +113,10 @@ class SentinelAgent:
         enclosing = ctx.get("enclosing_symbol")
         callers = [c.name for c in ctx.get("callers", [])]
 
-        # Grounding: Extract imports and driver context from target file
+        # Grounding: Extract imports and driver context from target file (can be disabled via ablation)
         file_imports = []
         driver_context = None
-        if target_file.exists():
+        if self.enable_grounding and target_file.exists():
             try:
                 f_lines = target_file.read_text(encoding="utf-8").splitlines()
                 file_imports = [l.strip() for l in f_lines if l.startswith("import ") or l.startswith("from ")][:5]
