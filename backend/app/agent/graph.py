@@ -104,6 +104,20 @@ class SentinelAgent:
         enclosing = ctx.get("enclosing_symbol")
         callers = [c.name for c in ctx.get("callers", [])]
 
+        # Grounding: Extract imports and driver context from target file
+        file_imports = []
+        driver_context = None
+        if target_file.exists():
+            try:
+                f_lines = target_file.read_text(encoding="utf-8").splitlines()
+                file_imports = [l.strip() for l in f_lines if l.startswith("import ") or l.startswith("from ")][:5]
+                if any("sqlite3" in l for l in file_imports):
+                    driver_context = "sqlite3 (parameter placeholder: '?', pass params as tuple: cursor.execute(sql, (param,)))"
+                elif any("psycopg" in l or "mysql" in l for l in file_imports):
+                    driver_context = "relational db (parameter placeholder: '%s')"
+            except Exception:
+                pass
+
         state.add_log(f"✍️ Synthesizing patch (Attempt {state.iteration + 1}/{state.max_iterations})...")
         
         patch_data = self.model_client.generate_patch(
@@ -113,6 +127,8 @@ class SentinelAgent:
             enclosing_symbol_name=enclosing.name if enclosing else None,
             callers=callers,
             test_failure_trace=state.last_test_error,
+            driver_context=driver_context,
+            file_imports=file_imports,
         )
 
         target_code = patch_data.get("target_code", "")
@@ -143,11 +159,25 @@ class SentinelAgent:
         finding.test_stdout = result.stdout
 
         if result.passed:
-            state.add_log(f"✅ Sandbox verification PASSED in {result.duration_ms}ms! Zero regressions.")
-            finding.status = FindingStatus.RESOLVED
-            finding.iterations_taken = state.iteration + 1
-            state.current_finding_index += 1
-            state.last_test_error = None
+            # Security Gate: Re-scan target file with Bandit / AST scanner to confirm vulnerability was eliminated
+            post_scan = self.scanner.scan_directory(repo_path)
+            matching_findings = [f for f in post_scan.findings if f.file_path == finding.file_path and f.cwe_id == finding.cwe_id]
+            if matching_findings:
+                state.iteration += 1
+                state.last_test_error = f"Security Gate Failed: Vulnerability {finding.cwe_id} still detected by static analyzer on line {matching_findings[0].line_start}."
+                state.add_log(f"⚠️ Security Gate REJECTED patch on Attempt {state.iteration}: {finding.cwe_id} still present in static analysis.")
+                self.patch_engine.rollback_file(repo_path / finding.file_path)
+                if state.iteration >= state.max_iterations:
+                    state.add_log(f"🛑 Max self-healing iterations reached for [{finding.id}]. Marking FAILED.")
+                    finding.status = FindingStatus.FAILED
+                    finding.iterations_taken = state.iteration
+                    state.current_finding_index += 1
+            else:
+                state.add_log(f"✅ Sandbox verification & Security Gate PASSED in {result.duration_ms}ms! Zero regressions.")
+                finding.status = FindingStatus.RESOLVED
+                finding.iterations_taken = state.iteration + 1
+                state.current_finding_index += 1
+                state.last_test_error = None
         else:
             state.iteration += 1
             state.last_test_error = result.error_summary

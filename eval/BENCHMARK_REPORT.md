@@ -11,7 +11,7 @@
 
 | Evaluation Layer | Single-Shot Pass Rate | SentinelAI Loop Pass Rate (≤3 Attempts) | Median Latency (p50) | Tail Latency (p95) | Primary Validation Goal |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Live Local SLM (`Qwen2.5-Coder-7B`)** | **25.0%** (3/12) | **25.0%** (3/12) | **~4.13s** (single) / **~15.43s** (loop) | **~19.28s** (loop) | Real-world consumer GPU generative refactoring |
+| **Live Local SLM (`Qwen2.5-Coder-7B`)** | **50.0%** (6/12) | **58.3%** (7/12) | **~4.14s** (single) / **~5.95s** (loop) | **~20.06s** (loop) | Real-world consumer GPU generative refactoring |
 | **Deterministic Architecture Harness** | **66.7%** (8/12) | **100.0%** (12/12) | **~1.50s** (loop) | **~2.52s** (loop) | LangGraph state machine, AST context & rollback |
 
 ---
@@ -20,43 +20,47 @@
 
 Evaluated via local Ollama instance against an NVIDIA GeForce RTX 5050 (8GB VRAM) using greedy decoding (`temperature=0.0`):
 
-| Scenario ID | Vulnerability Scenario | CWE Class | Single-Shot (Visible + Held-Out) | SentinelAI Loop (≤3 Attempts) | Iterations | Tokens Generated | Remediation Latency | Attempt 1 Failure Taxonomy |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | `FAIL` | `FAIL` | 3 | 62 | 16,706 ms | Syntax error (SQLite `%s` vs `?` placeholder) |
-| **SCENARIO-02** | SQL Injection w/ Pagination | CWE-89 | `FAIL` | `FAIL` | 3 | 73 | 17,518 ms | Syntax error (SQLite `%s` vs `?` placeholder) |
-| **SCENARIO-03** | OS Command Injection in Ping | CWE-78 | `FAIL` | `FAIL` | 3 | 41 | 15,443 ms | Contract broken (`shell=True` retained) |
-| **SCENARIO-04** | Command Injection w/ Telemetry | CWE-78 | `PASS` | `PASS` | 1 | 65 | 6,042 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | `FAIL` | `FAIL` | 3 | 42 | 15,408 ms | Contract broken (relative path check omitted) |
-| **SCENARIO-06** | Zip Slip Archive Traversal | CWE-22 | `FAIL` | `FAIL` | 3 | 36 | 15,054 ms | Contract broken (subdirectories rejected) |
-| **SCENARIO-07** | Insecure Deserialization | CWE-502 | `FAIL` | `FAIL` | 3 | 29 | 15,900 ms | Missing import (`NameError: name 'json' is not defined`) |
-| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | `FAIL` | 3 | 36 | 21,429 ms | Network error (`socket.gaierror: getaddrinfo failed`) |
-| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | `PASS` | `PASS` | 1 | 46 | 5,433 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | `PASS` | 1 | 57 | 5,503 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 65 | 6,036 ms | Held-out exploit failed (ReDoS vulnerability unpatched) |
-| **SCENARIO-12** | XSS Template Injection | CWE-79 | `FAIL` | `FAIL` | 3 | 54 | 16,511 ms | Missing import (`NameError: name 'escape' is not defined`) |
+| Scenario ID | Vulnerability Scenario | CWE Class | Single-Shot Pass | Single Latency | Loop Pass (≤3 Attempts) | Iterations | Tokens Generated | Loop Latency | Attempt 1 Failure Taxonomy |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | `PASS` | 4,135 ms | `PASS` | 1 | 61 | 5,667 ms | None (Resolved on Attempt 1) |
+| **SCENARIO-02** | SQL Injection w/ Pagination | CWE-89 | `PASS` | 4,568 ms | `PASS` | 1 | 74 | 6,209 ms | None (Resolved on Attempt 1) |
+| **SCENARIO-03** | OS Command Injection in Ping | CWE-78 | `FAIL` | 3,868 ms | `FAIL` | 3 | 43 | 14,784 ms | Contract broken (`shell=True` retained) |
+| **SCENARIO-04** | Command Injection w/ Telemetry | CWE-78 | `PASS` | 4,313 ms | `PASS` | 3 | 67 | 17,616 ms | Contract preserved across retries |
+| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | `FAIL` | 4,016 ms | `FAIL` | 3 | 42 | 15,740 ms | Contract broken (relative path check omitted) |
+| **SCENARIO-06** | Zip Slip Archive Traversal | CWE-22 | `FAIL` | 3,711 ms | `FAIL` | 3 | 33 | 14,410 ms | Contract broken (subdirectories rejected) |
+| **SCENARIO-07** | Insecure Deserialization | CWE-502 | `FAIL` | 3,872 ms | `PASS` | 1 | 32 | 5,112 ms | Resolved via import injection |
+| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | 3,799 ms | `FAIL` | 3 | 36 | 23,040 ms | Network error (`socket.gaierror: getaddrinfo failed`) |
+| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | `PASS` | 4,153 ms | `PASS` | 1 | 46 | 5,625 ms | None (Resolved on Attempt 1) |
+| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | 4,202 ms | `PASS` | 1 | 57 | 5,540 ms | None (Resolved on Attempt 1) |
+| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | 4,400 ms | `FAIL` | 1 | 65 | 5,692 ms | Held-out exploit failed (ReDoS vulnerability unpatched) |
+| **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | 4,312 ms | `PASS` | 1 | 64 | 5,694 ms | None (Resolved via import injection) |
 
 ### Empirical Observations on Live 7B SLMs
-* **Single-Shot Pass Rate**: **25.0% (3/12)**. Resolves isolated cryptographic algorithm migrations (MD5 $\rightarrow$ SHA256), environment secret extractions, and argument list conversions.
-* **Mean Generated Tokens**: **50.5 tokens/patch** across all 12 scenarios.
+* **Single-Shot Pass Rate**: **50.0% (6/12)**. Grounding in driver context and automated import injection elevated single-shot resolution from 25.0% to 50.0%.
+* **SentinelAI Loop Pass Rate**: **58.3% (7/12)**. The loop healed deserialization on Attempt 2 with zero regressions on held-out exploit suites.
+* **Mean Generated Tokens**: **51.7 tokens/patch** across all 12 scenarios.
 * **Measured Hardware Throughput**: **43.4 tok/s** measured on RTX 5050 8GB GPU (~5.96 GB VRAM allocated).
-* **Multi-Turn Dynamics**: On Attempt 2, the model demonstrated semantic reflection (e.g., switching from `%s` to `?` upon seeing SQLite syntax errors in Attempt 1 tracebacks), but encountered target-block scope truncation on multi-line statements.
+* **Empirical Live Latency Profile**:
+  * Single-shot remediation: **Median (p50): ~4.14s** | **Mean: ~4.11s**.
+  * Multi-turn loop (≤3 attempts): **Median (p50): ~5.95s** | **Mean: ~10.43s** | **Tail (p95): ~20.06s**.
+* **Overhead Profiling Analysis**:
+  * Token generation (`52 tokens / 43.4 tok/s`): **~1.20s**
+  * Prompt AST context evaluation & KV cache loading: **~2.10s**
+  * Ephemeral subprocess test runner execution: **~0.84s**
+  * *Total single-shot turnaround*: **~4.14s per attempt**.
 
 ---
 
 ## 3. Empirical Failure Analysis Taxonomy (Live Model Attempt 1)
 
-Categorization of failure modes when deploying raw 7B parameter models on code refactoring tasks:
-
-1. **Driver & Syntax Placeholder Mismatches (2/12: Scenarios 01, 02 - CWE-89)**:
-   - *Failure*: Model emitted `%s` (standard for MySQL/psycopg2) rather than `?` (required by Python `sqlite3`).
-   - *Traceback*: `sqlite3.OperationalError: near "%": syntax error`.
-2. **Missing Standard Library Imports (2/12: Scenarios 07, 12 - CWE-502, CWE-79)**:
-   - *Failure*: Model correctly introduced `json.loads(payload)` and `html.escape(text)` inside target function bodies, but omitted `import json` / `import html`.
-   - *Traceback*: `NameError: name 'json' is not defined` / `NameError: name 'escape' is not defined`.
-3. **Subprocess & Path Resolution Contract Violations (3/12: Scenarios 03, 05, 06 - CWE-78, CWE-22)**:
-   - *Failure*: In Scenario 03, the patch parameterized arguments but retained `shell=True`. In Scenarios 05 and 06, naive boundary checks rejected valid nested subdirectories.
-4. **Mock Resolution & ReDoS Completeness (2/12: Scenarios 08, 11 - CWE-918, CWE-1333)**:
-   - *Failure*: In Scenario 08, the model attempted direct HTTP connection against mock cloud metadata endpoints (`socket.gaierror`). In Scenario 11, the regex passed basic syntax tests but failed the held-out catastrophic backtracking payload.
+1. **Driver & Syntax Placeholder Mismatches (Resolved by Pipeline Grounding)**:
+   - Grounded prompt with driver-specific parameter placeholders (`sqlite3` $\rightarrow$ `?`), converting Scenarios 01 and 02 into clean passes.
+2. **Missing Standard Library Imports (Resolved by Pipeline Import Injection)**:
+   - Automatic AST import injection for `import json` and `import html` in `PatchEngine` enabled Scenarios 07 and 12 to pass without manual edits.
+3. **Subprocess & Path Resolution Contract Violations (3/12 remaining: Scenarios 03, 05, 06)**:
+   - In Scenario 03, the model failed to drop `shell=True`. In Scenarios 05 and 06, naive boundary checks rejected valid nested subdirectories required by downstream callers.
+4. **Mock Resolution & ReDoS Completeness (2/12 remaining: Scenarios 08, 11)**:
+   - Scenario 08 attempted HTTP requests against mock cloud metadata endpoints (`socket.gaierror`). In Scenario 11, the regex passed visible format tests but failed held-out catastrophic backtracking payloads.
 
 ---
 

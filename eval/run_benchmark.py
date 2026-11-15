@@ -185,6 +185,16 @@ def run_benchmark(mode: str = "pipeline"):
 
             if report.findings:
                 finding = report.findings[0]
+                # Grounding driver & imports for single shot
+                t_file = tmp_b_path / finding.file_path
+                f_imports = []
+                driver_ctx = None
+                if t_file.exists():
+                    f_lines = t_file.read_text(encoding="utf-8").splitlines()
+                    f_imports = [l.strip() for l in f_lines if l.startswith("import ") or l.startswith("from ")][:5]
+                    if any("sqlite3" in l for l in f_imports):
+                        driver_ctx = "sqlite3 (parameter placeholder: '?', pass params as tuple: cursor.execute(sql, (param,)))"
+
                 t0 = time.time()
                 # Synthesize patch with zero error feedback (single-shot attempt)
                 patch_data = model_client.generate_patch(
@@ -192,6 +202,8 @@ def run_benchmark(mode: str = "pipeline"):
                     cwe_id=finding.cwe_id,
                     code_snippet=finding.code_snippet,
                     test_failure_trace=None,
+                    driver_context=driver_ctx,
+                    file_imports=f_imports,
                 )
                 target_code = patch_data.get("target_code", "")
                 replacement_code = patch_data.get("replacement_code", "")

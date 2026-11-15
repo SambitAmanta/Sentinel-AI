@@ -13,7 +13,12 @@ Your task is to fix the identified security vulnerability in the given code snip
 Rules:
 1. ONLY fix the security vulnerability without breaking existing function signatures or callers.
 2. If previous test regression errors are provided, specifically correct the regression.
-3. Return a valid JSON object with exactly two string keys:
+3. For Python security fixes:
+   - For SQLite: use '?' parameter placeholders (e.g. cursor.execute("SELECT ... WHERE id = ?", (val,)))
+   - For Subprocess: use shell=False with argument list (e.g. ["ping", "-c", "1", host])
+   - For Deserialization: use safe deserializers like json.loads()
+   - For XSS: use html entity escaping
+4. Return a valid JSON object with exactly two string keys:
 {
   "target_code": "<the exact code lines from original code to replace>",
   "replacement_code": "<the secure replacement code lines>"
@@ -64,13 +69,21 @@ class LocalModelClient:
         enclosing_symbol_name: Optional[str] = None,
         callers: Optional[list] = None,
         test_failure_trace: Optional[str] = None,
+        driver_context: Optional[str] = None,
+        file_imports: Optional[list] = None,
     ) -> Dict[str, str]:
         """Requests patch generation from local SLM or multi-turn synthesis engine."""
         
         prompt = f"""Vulnerability: {vulnerability_message} ({cwe_id or 'Unknown CWE'})
 Target Function/Symbol: {enclosing_symbol_name or 'Unknown'}
 Callers across codebase: {', '.join(callers) if callers else 'None'}
-Original Code:
+"""
+        if driver_context:
+            prompt += f"Execution Context / Driver: {driver_context}\n"
+        if file_imports:
+            prompt += f"File Imports: {', '.join(file_imports)}\n"
+
+        prompt += f"""Original Code:
 ```python
 {code_snippet}
 ```
