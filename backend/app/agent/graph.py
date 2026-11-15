@@ -9,7 +9,7 @@ from app.agent.state import AgentState
 from app.agent.model_client import LocalModelClient
 from app.ast_engine.symbol_graph import SymbolGraph
 from app.scanners.bandit_runner import BanditScanner
-from app.scanners.schemas import FindingStatus
+from app.scanners.schemas import FindingStatus, Severity
 from app.sandbox.patch_engine import PatchEngine
 from app.sandbox.runner import TestRunner
 
@@ -161,11 +161,14 @@ class SentinelAgent:
         if result.passed:
             # Security Gate: Re-scan target file with Bandit / AST scanner to confirm vulnerability was eliminated
             post_scan = self.scanner.scan_directory(repo_path)
-            matching_findings = [f for f in post_scan.findings if f.file_path == finding.file_path and f.cwe_id == finding.cwe_id]
+            matching_findings = [
+                f for f in post_scan.findings 
+                if f.file_path == finding.file_path and (f.check_id == finding.check_id or (f.cwe_id == finding.cwe_id and f.severity in (Severity.CRITICAL, Severity.HIGH)))
+            ]
             if matching_findings:
                 state.iteration += 1
-                state.last_test_error = f"Security Gate Failed: Vulnerability {finding.cwe_id} still detected by static analyzer on line {matching_findings[0].line_start}."
-                state.add_log(f"⚠️ Security Gate REJECTED patch on Attempt {state.iteration}: {finding.cwe_id} still present in static analysis.")
+                state.last_test_error = f"Security Gate Failed: Vulnerability {finding.check_id} ({finding.cwe_id}) still detected by static analyzer on line {matching_findings[0].line_start}."
+                state.add_log(f"⚠️ Security Gate REJECTED patch on Attempt {state.iteration}: {finding.check_id} still present in static analysis.")
                 self.patch_engine.rollback_file(repo_path / finding.file_path)
                 if state.iteration >= state.max_iterations:
                     state.add_log(f"🛑 Max self-healing iterations reached for [{finding.id}]. Marking FAILED.")

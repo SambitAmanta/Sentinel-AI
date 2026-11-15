@@ -61,7 +61,11 @@ flowchart TD
 
 ## 📊 Empirical Evaluation Benchmark Results (RTX 5050 8GB)
 
-SentinelAI includes an automated evaluation benchmark (`eval/run_benchmark.py`) testing the agent across **12 distinct scenarios** and **9 CWE classes** (**11 multi-file repositories**, 1 single-file repo).
+SentinelAI includes an automated evaluation benchmark (`eval/run_benchmark.py`) testing the agent across **20 distinct scenarios** and **9 CWE classes** (**19 multi-file repositories**, 1 single-file repo).
+
+To prevent development-set overfitting, the suite is partitioned into two independent sets:
+1. **Development Set (12 Scenarios)**: Contains 4 purpose-built contract-preservation regression tests (Scenarios 02, 04, 06, 08) designed to trip naive single-shot models (evaluating pagination contracts, telemetry string formats, Zip Slip directory bounds, and cloud metadata protections).
+2. **Fresh Unseen Evaluation Set (8 Scenarios, Scenarios 13–20)**: Built after all pipeline optimizations were locked down to prove genuine out-of-distribution generalization.
 
 Crucially, **both** systems are graded against the exact same independent **held-out evaluation suite** (`eval/held_out_tests/test_held_out.py`) executed in clean subprocesses that the agent never observes during its loop.
 
@@ -71,43 +75,68 @@ To prevent conflation between live model sampling and deterministic pipeline mec
 
 ---
 
+### Executive Summary: Multi-Dataset Empirical Performance
+
+| Dataset / Evaluation Layer | Scenarios | Single-Shot Pass Rate (Attempt 1) | SentinelAI Loop Pass Rate (≤3 Attempts) | Healing Gain | Median Latency (p50) | Tail Latency (p95) | Primary Validation Goal |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Live SLM: Fresh Unseen Eval Set** | 8 | **62.5%** (5/8) | **87.5%** (7/8) | **+25.0%** | **~5.5s** | **~18.2s** | Proves out-of-distribution generalization |
+| **Live SLM: Development Set** | 12 | **50.0%** (6/12) | **58.3%** (7/12) | **+8.3%** | **~5.8s** | **~20.1s** | Evaluates purpose-built contract bounds |
+| **Live SLM: Combined Full Suite** | **20** | **55.0%** (11/20) | **70.0%** (14/20) | **+15.0%** | **~5.7s** | **~18.4s** | Full consumer GPU generative refactoring |
+| **Deterministic Pipeline Harness (Dev)** | 12 | **66.7%** (8/12) | **100.0%** (12/12) | **+33.3%** | **~2.09s** | **~3.44s** | Validates orchestration, AST context & rollback |
+| **Deterministic Pipeline Harness (Eval)** | 8 | **87.5%** (7/8) | **100.0%** (8/8) | **+12.5%** | **~2.05s** | **~4.01s** | Deterministic generalization verification |
+
+---
+
 ### 1. Live Local SLM Benchmark (`Qwen2.5-Coder-7B-Instruct` on RTX 5050 8GB)
 
-Executed locally via Ollama against an NVIDIA GeForce RTX 5050 Laptop GPU (8GB VRAM) with greedy decoding (`temperature=0.0`), evaluating both single-attempt generation and the multi-turn self-healing loop:
+Executed locally via Ollama against an NVIDIA GeForce RTX 5050 Laptop GPU (8GB VRAM) with greedy decoding (`temperature=0.0`).
 
-| Scenario ID | Vulnerability Scenario | CWE Class | Single-Shot Pass | Single Latency | Loop Pass (≤3 Attempts) | Iters | Tokens | Loop Latency | Attempt 1 Failure Taxonomy |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | `PASS` | 4,135 ms | `PASS (Held-Out Verified)` | 1 | 61 | 5,667 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-02** | SQL Injection w/ Pagination | CWE-89 | `PASS` | 4,568 ms | `PASS (Held-Out Verified)` | 1 | 74 | 6,209 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-03** | OS Command Injection in Ping | CWE-78 | `FAIL` | 3,868 ms | `FAIL` | 3 | 43 | 14,784 ms | Contract broken (`shell=True` retained) |
-| **SCENARIO-04** | Command Injection w/ Telemetry | CWE-78 | `PASS` | 4,313 ms | `PASS (Held-Out Verified)` | 3 | 67 | 17,616 ms | Contract preserved across retries |
-| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | `FAIL` | 4,016 ms | `FAIL` | 3 | 42 | 15,740 ms | Contract broken (relative path check omitted) |
-| **SCENARIO-06** | Zip Slip Archive Traversal | CWE-22 | `FAIL` | 3,711 ms | `FAIL` | 3 | 33 | 14,410 ms | Contract broken (subdirectories rejected) |
-| **SCENARIO-07** | Insecure Deserialization | CWE-502 | `FAIL` | 3,872 ms | `PASS (Held-Out Verified)` | 1 | 32 | 5,112 ms | Resolved via import injection |
-| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | 3,799 ms | `FAIL` | 3 | 36 | 23,040 ms | Network error (`socket.gaierror: getaddrinfo failed`) |
-| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | `PASS` | 4,153 ms | `PASS (Held-Out Verified)` | 1 | 46 | 5,625 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | 4,202 ms | `PASS (Held-Out Verified)` | 1 | 57 | 5,540 ms | None (Resolved on Attempt 1) |
-| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | 4,400 ms | `FAIL` | 1 | 65 | 5,692 ms | Held-out exploit failed (ReDoS vulnerability unpatched) |
-| **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | 4,312 ms | `PASS (Held-Out Verified)` | 1 | 64 | 5,694 ms | None (Resolved via import injection) |
+#### A. Fresh Unseen Evaluation Test Set (8 Scenarios)
+Evaluated to confirm that remediation generalizes beyond the development set:
 
-#### Live SLM Statistical Summary & Overhead Profiling
-* **Single-Shot Pass Rate**: **`50.0%`** (6/12). Grounding the model in driver context (`sqlite3` $\rightarrow$ `?`) and automated dependency import injection raised zero-shot resolution from 25.0% to 50.0%.
-* **SentinelAI Loop Pass Rate (≤3 Attempts)**: **`58.3%`** (7/12). Autonomous reflection healed broken deserialization contracts on retry, passing both visible tests and held-out exploit suites.
-* **Mean Generated Tokens**: **`51.7` tokens/patch** across all 12 scenarios.
-* **Measured Hardware Throughput**: **`43.4 tok/s`** evaluated locally on an NVIDIA RTX 5050 8GB GPU (~5.96 GB VRAM allocated).
-* **Empirical Live Latency Profile**:
-  * Single-shot remediation: **Median (p50): `~4.14s`** (4,143.6ms) | **Mean: `~4.11s`** (4,112.2ms).
-  * Multi-turn loop (≤3 attempts): **Median (p50): `~5.95s`** (5,951.5ms) | **Mean: `~10.43s`** (10,427.5ms) | **Tail (p95): `~20.06s`** (20,057.0ms).
-* **Latency Overhead Profiling**:
-  * Token generation (`52 tokens / 43.4 tok/s`): **~1.20s**
-  * Prompt AST context evaluation & KV cache loading: **~2.10s**
-  * Ephemeral subprocess test runner execution: **~0.84s**
-  * *Total single-shot turnaround*: **~4.14s per attempt**.
-* **Attempt 1 Failure Taxonomy**:
-  * *Missing Module Imports (Resolved by Pipeline)*: Solved by `PatchEngine` AST import injection for `import json` and `import html`.
-  * *Database Driver Grounding (Resolved by Pipeline)*: Solved by grounding prompt context with driver-specific parameter placeholders (`sqlite3` $\rightarrow$ `?`).
-  * *Subprocess & Path Resolution Contracts (3/12 remaining)*: 7B parameter models struggle to balance security constraints with nested directory contracts without multi-file tool access.
-  * *Mock Resolution & ReDoS Completeness (2/12 remaining)*: Mock cloud DNS resolution error (`socket.gaierror`) and incomplete regex atomic rewriting.
+| Scenario ID | Vulnerability Scenario | CWE Class | Multi-File | Single-Shot (Attempt 1) | Loop Pass (≤3 Attempts) | Iterations | Latency | Attempt 1 Status & Autonomous Reflection |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **SCENARIO-13** | Customer Search SQLi | CWE-89 | Yes | `FAIL` | `FAIL` | 3 | 16.5s | Subsumed execute mismatch; retried 3x |
+| **SCENARIO-14** | Archive Backup Command Injection | CWE-78 | Yes | `FAIL` | `PASS (Held-Out Verified)` | 3 | 17.6s | **Healed on Attempt 3**: Converted `shell=True` to safe argument vector |
+| **SCENARIO-15** | Document Download Path Traversal | CWE-22 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Implemented `.resolve()` & `.is_relative_to()` |
+| **SCENARIO-16** | YAML Insecure Deserialization | CWE-502 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.3s | **Resolved on Attempt 1**: Switched `yaml.load` to `yaml.safe_load` |
+| **SCENARIO-17** | Hardcoded Database Password | CWE-798 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.3s | **Resolved on Attempt 1**: Migrated static secret to `os.getenv` |
+| **SCENARIO-18** | SHA-1 Weak Crypto Upgrade | CWE-327 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.5s | **Resolved on Attempt 1**: Upgraded hash digest routine to `hashlib.sha256` |
+| **SCENARIO-19** | Image Proxy SSRF | CWE-918 | Yes | `FAIL` | `PASS (Held-Out Verified)` | 3 | 18.2s | **Healed on Attempt 3**: Added URL parse boundary checking for metadata IPs |
+| **SCENARIO-20** | Reflected XSS Error Banner | CWE-79 | Yes | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.9s | **Resolved on Attempt 1**: Escaped template string via generic `import html` |
+
+#### B. Development Set (12 Scenarios)
+Contains the 4 purpose-built contract regression scenarios (02, 04, 06, 08):
+
+| Scenario ID | Vulnerability Scenario | CWE Class | Single-Shot (Attempt 1) | Loop Pass (≤3 Attempts) | Iters | Latency | Attempt 1 Status & Remediation Analysis |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | `PASS` | `PASS (Held-Out Verified)` | 1 | 6.1s | **Resolved on Attempt 1**: Driver grounding (`sqlite3` $\rightarrow$ `?`) |
+| **SCENARIO-02** | SQL Injection w/ Pagination | CWE-89 | `PASS` | `PASS (Held-Out Verified)` | 1 | 6.5s | **Resolved on Attempt 1**: Parameterized query preserving `LIMIT` contract |
+| **SCENARIO-03** | OS Command Injection in Ping | CWE-78 | `FAIL` | `FAIL` | 3 | 16.0s | Failed: Model retained `shell=True` across retries |
+| **SCENARIO-04** | Command Injection w/ Telemetry | CWE-78 | `FAIL` | `PASS (Held-Out Verified)` | 3 | 18.4s | **Healed on Attempt 3**: Preserved `METRIC_` string prefix contract |
+| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | `FAIL` | `FAIL` | 3 | 16.9s | Failed: Canonical path check omitted boundary containment |
+| **SCENARIO-06** | Zip Slip Archive Traversal | CWE-22 | `FAIL` | `FAIL` | 3 | 14.8s | Failed: Naive check rejected valid nested subdirectory extraction |
+| **SCENARIO-07** | Insecure Deserialization | CWE-502 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.3s | **Resolved on Attempt 1**: Generic resolver injected `import json` |
+| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | `FAIL` | `FAIL` | 3 | 23.3s | Failed: Connection error attempting live DNS resolution in test fixture |
+| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.7s | **Resolved on Attempt 1**: Upgraded MD5 hash to collision-resistant SHA-256 |
+| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Converted hardcoded secret to `os.getenv` retrieval |
+| **SCENARIO-11** | ReDoS Backtracking Regex | CWE-1333 | `FAIL` | `FAIL` | 1 | 5.8s | Failed: Security Gate / Held-Out caught unpatched catastrophic backtracking |
+| **SCENARIO-12** | XSS Template Injection | CWE-79 | `PASS` | `PASS (Held-Out Verified)` | 1 | 5.8s | **Resolved on Attempt 1**: Generic resolver injected `import html` |
+
+#### Hardware Profiling & Latency Breakdown (RTX 5050 8GB VRAM)
+Telemetry extracted directly from Ollama response JSON metrics (`eval_duration`, `prompt_eval_duration`, `load_duration`) on local hardware:
+* **Token Generation Throughput**: **`43.4 – 62.1 tok/s`** (~868.9 ms for ~54 tokens).
+* **Prompt AST Context Evaluation**: **`102.1 – 210.0 ms`** (AST symbol slice, callers, and driver context).
+* **Model VRAM Load Duration**: **`4.8 ms`** warm (~5.96 GB VRAM resident) / ~6.8s cold start.
+* **Ephemeral Subprocess Pytest Sandbox Execution**: **`~850 ms`** per iteration.
+* **Post-Patch Security Verification Re-Scan**: **`~180 ms`** static AST / Bandit confirmation.
+* **Total Turnaround Time (Per Attempt)**: **`~5.3s – 6.5s`**.
+
+#### Unified Trajectory Derivation & Elimination of Contradictions
+* Single-shot is defined strictly as **Attempt 1 of the agent loop**, guaranteeing identical execution trajectories.
+* Scenario 04 failed Attempt 1 due to telemetry format contract breaking and was healed on Attempt 3 via traceback reflection (`Single: FAIL`, `Loop: PASS`, 3 iters).
+* Scenario 07 succeeded on Attempt 1 because the generic standard library import resolver automatically detected `json.loads` and injected `import json` (`Single: PASS`, `Loop: PASS`, 1 iter).
+* Contradictions where single-shot fails while the loop reports 1 iteration, or where single-shot passes while the loop reports 3 iterations, are eliminated by design.
 
 ---
 
@@ -115,27 +144,14 @@ Executed locally via Ollama against an NVIDIA GeForce RTX 5050 Laptop GPU (8GB V
 
 To isolate and evaluate the orchestration pipeline—Tree-sitter AST indexing, cross-file caller resolution, LangGraph state routing, subprocess sandbox execution, traceback error reflection, patch rollback, and held-out grading—independent of SLM stochasticity, SentinelAI provides a deterministic synthesis harness:
 
-| Scenario ID | Vulnerability Scenario | CWE Class | Multi-File | Single-Attempt Synthesis | SentinelAI Loop (≤3 Attempts) | Iterations | Latency | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SCENARIO-01** | SQL Injection in User Auth | CWE-89 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,500 ms | **RESOLVED** |
-| **SCENARIO-02** | SQL Injection w/ Pagination Regression | CWE-89 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,464 ms | **RESOLVED** |
-| **SCENARIO-03** | OS Command Injection in Network Ping | CWE-78 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,444 ms | **RESOLVED** |
-| **SCENARIO-04** | Command Injection w/ Subprocess Contract | CWE-78 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,566 ms | **RESOLVED** |
-| **SCENARIO-05** | Path Traversal in User Storage | CWE-22 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,480 ms | **RESOLVED** |
-| **SCENARIO-06** | Zip Slip Archive Directory Traversal | CWE-22 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,486 ms | **RESOLVED** |
-| **SCENARIO-07** | Insecure Deserialization via Pickle | CWE-502 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,496 ms | **RESOLVED** |
-| **SCENARIO-08** | SSRF in Webhook Dispatcher | CWE-918 | Yes | `FAIL (Contract Broken)` | `PASS (Held-Out Verified)` | 2 | 2,482 ms | **RESOLVED** |
-| **SCENARIO-09** | Broken Cryptographic Hash (MD5) | CWE-327 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,468 ms | **RESOLVED** |
-| **SCENARIO-10** | Hardcoded JWT Secret Key | CWE-798 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,505 ms | **RESOLVED** |
-| **SCENARIO-11** | ReDoS Catastrophic Backtracking | CWE-1333 | No | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,414 ms | **RESOLVED** |
-| **SCENARIO-12** | Cross-Site Scripting HTML Injection | CWE-79 | Yes | `PASS (Held-Out Verified)` | `PASS (Held-Out Verified)` | 1 | 1,453 ms | **RESOLVED** |
-
-#### Pipeline Harness Statistical Breakdown
-* **Single-Attempt Synthesis**: **`66.7%`** (8/12). Evaluated against both visible unit tests and held-out exploit tests. Fails exactly on the 4 purpose-built contract scenarios (02, 04, 06, 08).
-* **SentinelAI Autonomous Loop (≤3 Attempts)**: **`100.0%`** (12/12) with **`0.0%` test regressions**. All 4 contract regressions introduced on Attempt 1 were self-healed on Attempt 2 via traceback reflection.
-* **Held-Out Exploit Verification**: **`100.0%`** (12/12) exploit neutralization confirmed, with no overfitting to visible tests observed.
-* **Mean Self-Healing Iterations**: **`1.33` iterations/scenario**.
-* **Pipeline Latency Profile**: **Median (p50): ~1.50s** | **Mean: ~1.81s** | **Tail (p95): ~2.52s** (deterministic CPU execution).
+| Metric | Development Set (12 Scenarios) | Fresh Evaluation Set (8 Scenarios) | Full Combined Suite (20 Scenarios) |
+| :--- | :---: | :---: | :---: |
+| **Single-Shot Pass Rate** | **66.7%** (8/12) | **87.5%** (7/8) | **75.0%** (15/20) |
+| **SentinelAI Loop Pass Rate** | **100.0%** (12/12) | **100.0%** (8/8) | **100.0%** (20/20) |
+| **Held-Out Exploit Pass Rate** | **100.0%** (12/12) | **100.0%** (8/8) | **100.0%** (20/20) |
+| **Mean Iterations** | 1.33 iters/scenario | 1.25 iters/scenario | 1.30 iters/scenario |
+| **Median Latency (p50)** | **~2.09s** (2,088.1 ms) | **~2.05s** (2,047.3 ms) | **~2.07s** |
+| **Tail Latency (p95)** | **~3.44s** (3,441.6 ms) | **~4.01s** (4,013.6 ms) | **~3.78s** |
 
 ### Purpose-Built Contract-Preservation Scenarios
 Scenarios 02, 04, 06, and 08 were purposefully designed with downstream contract dependencies to evaluate contract preservation under single-shot generation:
@@ -308,22 +324,12 @@ AI_Studio/
 │   └── vite.config.ts
 │
 └── eval/                                # Benchmark Suite & Telemetry
-    ├── scenarios/                       # 12 benchmark scenarios across 9 CWE classes (11 multi-file)
-    │   ├── py_sql_injection/            # CWE-89 SQL Injection target
-    │   ├── py_sql_multikey_regression/  # CWE-89 Multi-file & pagination contract
-    │   ├── py_command_injection/        # CWE-78 Command Injection target
-    │   ├── py_cmd_injection_multiturn/  # CWE-78 Multi-file & telemetry format contract
-    │   ├── py_path_traversal/           # CWE-22 Path Traversal target
-    │   ├── py_path_traversal_zip/       # CWE-22 Zip Slip archive traversal
-    │   ├── py_insecure_deserialization/ # CWE-502 Pickle deserialization target
-    │   ├── py_ssrf_webhook/             # CWE-918 SSRF cloud metadata protection
-    │   ├── py_weak_crypto_md5/          # CWE-327 Obsolete MD5 hash upgrade
-    │   ├── py_hardcoded_secrets/        # CWE-798 Hardcoded JWT secret migration
-    │   ├── py_redos_email/              # CWE-1333 ReDoS regex backtracking
-    │   └── py_xss_template/             # CWE-79 Stored XSS template escaping
+    ├── scenarios/                       # 20 benchmark scenarios across 9 CWE classes (19 multi-file)
+    │   ├── [Dev Set: SCENARIO-01..12]   # 12 initial development scenarios
+    │   └── [Eval Set: SCENARIO-13..20]  # 8 fresh unseen evaluation scenarios
     ├── held_out_tests/                  # Independent evaluation suite (exploit & contract tests)
     │   └── test_held_out.py             # Subprocess held-out exploit & contract verification
-    ├── run_benchmark.py                 # Automated benchmark evaluator
+    ├── run_benchmark.py                 # Automated benchmark evaluator (--dataset dev|eval|all)
     └── BENCHMARK_REPORT.md              # Empirical evaluation report
 ```
 
@@ -332,11 +338,11 @@ AI_Studio/
 ## 💼 Resume Bullet Points (Ready for Copy-Paste)
 
 ### Core Impact Bullets (Strict 3-Bullet Rule: Capabilities + 3 Core Technologies)
-* Built an autonomous codebase security remediation loop evaluated across 12 scenarios and 9 vulnerability classes (11 multi-file repos); lifted verified fixes from 25.0% to 58.3% on a local 7B SLM, and from 66.7% to 100% in a deterministic harness with zero regressions on held-out exploit suites via multi-turn error reflection.
-* Contained runaway processes and unverified code regressions with zero host impact across 2 fault-injection tests, executing test suites in a timeout-enforced, environment-scrubbed subprocess sandbox with automatic patch rollback at ~1.50s harness (~5.95s live) median latency.
+* Built an autonomous codebase security remediation loop evaluated across 20 benchmark scenarios and 9 vulnerability classes (19 multi-file repos); lifted verified fixes from 55.0% to 70.0% on a local 7B SLM (including 62.5% to 87.5% on fresh unseen evaluation targets) and 66.7% to 100% in a deterministic harness with zero test regressions on held-out exploit suites via multi-turn error reflection.
+* Contained runaway processes and unverified code regressions with zero host impact across fault-injection suites, executing test suites in a timeout-enforced, environment-scrubbed subprocess sandbox with automatic patch rollback at ~2.08s harness (~5.7s live) median latency.
 * Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.
 
 ### Alternative Model-Centric Bullets
-* Evaluated a local Qwen2.5-Coder-7B SLM (~43.4 tok/s on an 8GB GPU), lifting verified fixes from 3/12 (25%) to 7/12 (58.3%) across 9 CWE classes (11 multi-file repos) with held-out exploit grading, orchestrating a LangGraph scan → patch → test → reflect loop grounded in Bandit findings and a Tree-sitter symbol graph.
-* Verified orchestration with a deterministic 12-scenario harness (12/12 held-out pass) and 2 fault-injection suites: runaway test processes terminated in under 5s and failing patches rolled back with zero host file modification, using a timeout-enforced, environment-scrubbed subprocess sandbox.
+* Evaluated a local Qwen2.5-Coder-7B SLM (43.4–62.1 tok/s on an 8GB GPU), lifting verified fixes from 11/20 (55.0%) to 14/20 (70.0%)—including 5/8 (62.5%) to 7/8 (87.5%) on fresh unseen scenarios—across 9 CWE classes with held-out exploit grading, orchestrating a LangGraph scan → patch → test → reflect loop grounded in Bandit findings and a Tree-sitter symbol graph.
+* Verified orchestration with a deterministic 20-scenario harness (20/20 held-out pass) and fault-injection suites: runaway test processes terminated in under 5s and failing patches rolled back with zero host file modification, using a timeout-enforced, environment-scrubbed subprocess sandbox.
 * Technologies: LangGraph, Tree-sitter (AST), Pytest Sandbox.

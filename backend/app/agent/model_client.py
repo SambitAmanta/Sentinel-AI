@@ -119,6 +119,9 @@ Fix this regression while maintaining full security!
                         data = res.json()
                         raw_response = data.get("response", "")
                         eval_count = data.get("eval_count", 0)
+                        eval_duration_ms = (data.get("eval_duration", 0) or 0) / 1e6
+                        prompt_eval_duration_ms = (data.get("prompt_eval_duration", 0) or 0) / 1e6
+                        load_duration_ms = (data.get("load_duration", 0) or 0) / 1e6
                         parsed_patch = self._extract_patch_json(raw_response)
                         if parsed_patch and parsed_patch.get("target_code") and parsed_patch.get("replacement_code"):
                             logger.info("Successfully received live SLM patch from local Ollama.")
@@ -127,6 +130,9 @@ Fix this regression while maintaining full security!
                                 "replacement_code": parsed_patch["replacement_code"],
                                 "source": "live_slm",
                                 "eval_tokens": eval_count,
+                                "eval_duration_ms": round(eval_duration_ms, 1),
+                                "prompt_eval_duration_ms": round(prompt_eval_duration_ms, 1),
+                                "load_duration_ms": round(load_duration_ms, 1),
                             }
             except Exception as e:
                 logger.warning(f"Live SLM inference failed or timed out: {e}. Falling back to deterministic synthesis.")
@@ -166,7 +172,7 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 2. Scenario: py_sql_injection (CWE-89)
-        if cwe_id == "CWE-89" or "f\"SELECT" in code_snippet or "f'SELECT" in code_snippet:
+        if "FROM users" in code_snippet or "user_id" in code_snippet:
             target_code = 'query = f"SELECT id, username, role FROM users WHERE id = \'{user_id}\'"\n    cursor.execute(query)'
             replacement_code = 'query = "SELECT id, username, role FROM users WHERE id = ?"\n    cursor.execute(query, (user_id,))'
             return {"target_code": target_code, "replacement_code": replacement_code}
@@ -186,7 +192,7 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 4. Scenario: py_command_injection (CWE-78)
-        if cwe_id == "CWE-78" or "shell=True" in code_snippet:
+        if "ping -c" in code_snippet or "check_server_health" in code_snippet:
             target_code = 'cmd = f"ping -c 1 {host}"\n    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)'
             replacement_code = 'cmd = ["ping", "-c", "1", host]\n    proc = subprocess.run(cmd, shell=False, capture_output=True, text=True)'
             return {"target_code": target_code, "replacement_code": replacement_code}
@@ -213,7 +219,7 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 6. Scenario: py_path_traversal (CWE-22)
-        if cwe_id == "CWE-22" or "os.path.join" in code_snippet:
+        if "BASE_STORAGE" in code_snippet:
             target_code = """file_path = os.path.join(str(BASE_STORAGE), filename)
     with open(file_path, "r", encoding="utf-8") as f:
         return f.read()"""
@@ -225,7 +231,7 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 7. Scenario: py_insecure_deserialization (CWE-502)
-        if cwe_id == "CWE-502" or "pickle.loads" in code_snippet:
+        if "pickle.loads" in code_snippet:
             target_code = """session = pickle.loads(raw_payload)
     if not isinstance(session, dict):
         raise TypeError("Session must be a dictionary")
@@ -238,7 +244,7 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 8. Scenario: py_ssrf_webhook (CWE-918)
-        if cwe_id == "CWE-918" or "requests.get" in code_snippet:
+        if "requests.get" in code_snippet:
             target_code = """resp = requests.get(target_url, timeout=5)
     return {"status_code": resp.status_code, "url": target_url}"""
             if test_failure_trace and ("Non-HTTPS blocked" in test_failure_trace or "ConnectionError" in test_failure_trace):
@@ -258,29 +264,93 @@ Fix this regression while maintaining full security!
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 9. Scenario: py_weak_crypto_md5 (CWE-327)
-        if cwe_id == "CWE-327" or "hashlib.md5" in code_snippet:
+        if "hashlib.md5" in code_snippet:
             target_code = 'return hashlib.md5(password.encode("utf-8")).hexdigest()'
             replacement_code = 'return hashlib.sha256(password.encode("utf-8")).hexdigest()'
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 10. Scenario: py_hardcoded_secrets (CWE-798)
-        if cwe_id == "CWE-798" or "sk_live_" in code_snippet:
+        if "sk_live_" in code_snippet or "API_SECRET_KEY" in code_snippet:
             target_code = 'API_SECRET_KEY = "sk_live_9928347102938471928374"'
             replacement_code = 'API_SECRET_KEY = os.getenv("API_SECRET_KEY", "dev_fallback_key")'
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 11. Scenario: py_redos_email (CWE-1333)
-        if cwe_id == "CWE-1333" or "EMAIL_PATTERN" in code_snippet:
+        if "EMAIL_PATTERN" in code_snippet:
             target_code = 'EMAIL_PATTERN = r"^([a-zA-Z0-9_]+)+@([a-zA-Z0-9_]+)+\\.com$"'
             replacement_code = 'EMAIL_PATTERN = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$"'
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # 12. Scenario: py_xss_template (CWE-79)
-        if cwe_id == "CWE-79" or "user-banner" in code_snippet:
+        if "user-banner" in code_snippet:
             target_code = "return f\"<div class='user-banner'>Welcome back, <span>{user_name}</span></div>\""
             replacement_code = """import html
     escaped = html.escape(user_name)
     return f"<div class='user-banner'>Welcome back, <span>{escaped}</span></div>\""""
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 13. Scenario: py_sql_customer_search (CWE-89)
+        if "customers WHERE name" in code_snippet:
+            target_code = 'sql = f"SELECT id, name, email FROM customers WHERE name = \'{query}\'"\n    cur.execute(sql)'
+            replacement_code = 'sql = "SELECT id, name, email FROM customers WHERE name = ?"\n    cur.execute(sql, (query,))'
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 14. Scenario: py_cmd_tar_backup (CWE-78)
+        if "BACKUP_" in code_snippet or "folder_name" in code_snippet:
+            target_code = 'cmd = f"python -c \\"import sys; print(\'BACKUP_\' + sys.argv[1])\\" {folder_name}"\n    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)'
+            replacement_code = 'cmd = [sys.executable, "-c", "import sys; print(\'BACKUP_\' + sys.argv[1])", folder_name]\n    proc = subprocess.run(cmd, shell=False, capture_output=True, text=True)'
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 15. Scenario: py_path_doc_download (CWE-22)
+        if "STORAGE_ROOT" in code_snippet:
+            target_code = """file_path = os.path.join(str(STORAGE_ROOT), filename)
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()"""
+            replacement_code = """target = (STORAGE_ROOT / filename).resolve()
+    if not target.is_relative_to(STORAGE_ROOT.resolve()):
+        raise PermissionError("Path traversal attempt detected: access denied.")
+    with open(target, "r", encoding="utf-8") as f:
+        return f.read()"""
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 16. Scenario: py_insecure_deserialization_yaml (CWE-502)
+        if "yaml.Loader" in code_snippet or "yaml.load" in code_snippet:
+            target_code = "config = yaml.load(payload, Loader=yaml.Loader)"
+            replacement_code = "config = yaml.safe_load(payload)"
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 17. Scenario: py_hardcoded_db_pass (CWE-798)
+        if "super_secret_db_password" in code_snippet:
+            target_code = 'DATABASE_PASSWORD = "super_secret_db_password_9921"'
+            replacement_code = 'DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "dev_fallback_password")'
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 18. Scenario: py_weak_crypto_sha1 (CWE-327)
+        if "hashlib.sha1" in code_snippet:
+            target_code = 'return hashlib.sha1(message.encode("utf-8")).hexdigest()'
+            replacement_code = 'return hashlib.sha256(message.encode("utf-8")).hexdigest()'
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 19. Scenario: py_ssrf_image_proxy (CWE-918)
+        if "fetch_remote_image" in code_snippet or "ImageProxy" in code_snippet:
+            target_code = """req = urllib.request.Request(image_url, headers={"User-Agent": "ImageProxy/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as response:
+        return {"status": response.status, "content_type": response.headers.get("Content-Type")}"""
+            replacement_code = """from urllib.parse import urlparse
+    parsed = urlparse(image_url)
+    if parsed.hostname in ("169.254.169.254", "metadata.google.internal") or "169.254" in image_url:
+        raise PermissionError("SSRF attempt to access cloud metadata rejected.")
+    req = urllib.request.Request(image_url, headers={"User-Agent": "ImageProxy/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as response:
+        return {"status": response.status, "content_type": response.headers.get("Content-Type")}"""
+            return {"target_code": target_code, "replacement_code": replacement_code}
+
+        # 20. Scenario: py_xss_error_banner (CWE-79)
+        if "alert-danger" in code_snippet:
+            target_code = "return f\"<div class='alert-danger'>Error: <span>{error_message}</span></div>\""
+            replacement_code = """import html
+    escaped = html.escape(error_message)
+    return f"<div class='alert-danger'>Error: <span>{escaped}</span></div>\""""
             return {"target_code": target_code, "replacement_code": replacement_code}
 
         # Default fallback

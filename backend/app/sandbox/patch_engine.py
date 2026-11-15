@@ -2,6 +2,7 @@
 import difflib
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -47,19 +48,28 @@ class PatchEngine:
         return "".join(diff)
 
     def _inject_missing_imports(self, content: str, replacement: str) -> str:
-        """Injects missing standard library imports needed by replacement code."""
-        known_modules = {
-            r"\bjson\.(loads|dumps)": "import json",
-            r"\bhtml\.escape": "import html",
+        """Generic standard-library import resolver that detects referenced stdlib modules and functions."""
+        to_inject = []
+
+        # 1. Generic resolution for any module in Python's standard library (e.g. json, html, os, re, hashlib, etc.)
+        stdlib_names = getattr(sys, "stdlib_module_names", set())
+        module_refs = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\.[a-zA-Z0-9_]+", replacement))
+        for mod in sorted(module_refs):
+            if mod in stdlib_names:
+                if not re.search(rf"^\s*(?:import\s+{mod}\b|from\s+{mod}\b)", content, re.MULTILINE):
+                    to_inject.append(f"import {mod}")
+
+        # 2. Standalone stdlib utility functions often called bare
+        known_functions = {
             r"\bescape\(": "from html import escape",
             r"\burlparse\(": "from urllib.parse import urlparse",
-            r"\bhashlib\.(sha256|md5)": "import hashlib",
-            r"\bos\.getenv": "import os",
         }
-        to_inject = []
-        for pattern, imp in known_modules.items():
-            if re.search(pattern, replacement) and imp not in content:
-                to_inject.append(imp)
+        for pattern, imp in known_functions.items():
+            if re.search(pattern, replacement):
+                mod = imp.split()[1]
+                if not re.search(rf"^\s*(?:import\s+{mod}\b|from\s+{mod}\b)", content, re.MULTILINE) and f"import {mod}" not in to_inject:
+                    to_inject.append(imp)
+
         if to_inject:
             doc_match = re.match(r'^(?:"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')\s*\n', content)
             insert_pos = doc_match.end() if doc_match else 0

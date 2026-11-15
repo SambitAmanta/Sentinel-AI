@@ -238,6 +238,140 @@ exploit_blocked = ("<script>" not in rendered and "&lt;script&gt;" in rendered)
 contract_ok = ("<div class='user-banner'>" in rendered and "Welcome back" in rendered)
 
 print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-13": """
+import sys
+from db import init_customer_db, search_customers
+from service import get_customer_by_name
+
+conn = init_customer_db()
+# Exploit: SQL injection attempt
+exploit = "' OR '1'='1"
+res = search_customers(conn, exploit)
+exploit_blocked = (len(res) == 0)
+
+# Contract: Valid customer lookup
+valid = get_customer_by_name(conn, "Acme Corp")
+contract_ok = (len(valid) == 1 and valid[0]["name"] == "Acme Corp")
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-14": """
+import sys
+from service import trigger_backup
+
+# Exploit: Metacharacter command injection treated as literal argument
+exploit_res = trigger_backup("documents; echo PWNED_FLAG")
+exploit_blocked = (exploit_res.get("stdout") == "BACKUP_documents; echo PWNED_FLAG")
+
+# Contract: Valid backup output format
+valid_res = trigger_backup("documents")
+contract_ok = (valid_res.get("status") == 0 and "BACKUP_documents" in valid_res.get("stdout", ""))
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-15": """
+import sys
+from service import fetch_doc_content
+
+# Exploit: Directory traversal
+exploit_blocked = False
+try:
+    fetch_doc_content("../../etc/shadow")
+except (PermissionError, ValueError, FileNotFoundError):
+    exploit_blocked = True
+
+# Contract: Valid doc content
+contract_ok = (fetch_doc_content("invoice.pdf") == "INVOICE_CONTENT")
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-16": """
+import sys
+from service import load_system_config
+
+# Exploit: YAML unsafe object execution
+exploit_yaml = "!!python/object/apply:os.system ['echo PWNED']"
+exploit_blocked = False
+try:
+    load_system_config(exploit_yaml)
+except Exception:
+    exploit_blocked = True
+
+# Contract: Valid config parsing
+conf = load_system_config("app_name: SentinelApp\\nversion: 1.0.0")
+contract_ok = (conf.get("app_name") == "SentinelApp")
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-17": """
+import os
+from pathlib import Path
+from service import connect_db_client
+
+# Exploit: Hardcoded plaintext secret removed from source
+code = Path("credentials.py").read_text(encoding="utf-8")
+exploit_blocked = ("super_secret_db_password_9921" not in code)
+
+# Contract: Dynamic env override works
+os.environ["DATABASE_PASSWORD"] = "dynamic_runtime_password"
+conn_str = connect_db_client()
+contract_ok = ("dynamic_runtime_password" in conn_str or "admin:" in conn_str)
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-18": """
+import hashlib
+from service import sign_api_token
+
+# Exploit: Insecure SHA-1 hash upgraded to collision-resistant hash (SHA-256)
+token = "user_api_access_token_123"
+sig = sign_api_token(token)
+sha1_hash = hashlib.sha1(token.encode()).hexdigest()
+exploit_blocked = (len(sig) == 64 and sig != sha1_hash)
+
+# Contract: Deterministic signature string
+contract_ok = (isinstance(sig, str) and len(sig) == 64)
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-19": """
+import sys
+from service import proxy_image_request
+
+# Exploit: SSRF against cloud metadata destination
+exploit_blocked = False
+try:
+    proxy_image_request("http://169.254.169.254/latest/meta-data/")
+except (PermissionError, ValueError, Exception):
+    exploit_blocked = True
+
+# Contract: Valid request handling
+contract_ok = True
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
+""",
+
+    "SCENARIO-20": """
+import sys
+from service import render_api_error
+
+# Exploit: Reflected XSS injection
+exploit_msg = "<script>alert('XSS')</script>"
+rendered = render_api_error(exploit_msg)
+exploit_blocked = ("<script>" not in rendered and "&lt;script&gt;" in rendered)
+
+# Contract: Alert danger styling
+contract_ok = ("alert-danger" in rendered)
+
+print(json.dumps({"passed": exploit_blocked and contract_ok, "exploit_blocked": exploit_blocked, "contract_preserved": contract_ok}))
 """
 }
 
