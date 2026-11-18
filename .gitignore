@@ -25,6 +25,8 @@ Thumbs.db
 # Scratch & Logs
 scratch/
 *.log
+chroma_db/
+backend/chroma_db/
 
 # Frontend (for Phase 4)
 node_modules/

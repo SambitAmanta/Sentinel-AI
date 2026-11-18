@@ -11,7 +11,9 @@ from sse_starlette.sse import EventSourceResponse
 from app.agent.graph import SentinelAgent
 from app.agent.state import AgentState
 from app.config import settings
-from app.observability import telemetry
+from app.observability import telemetry, tracer
+from app.rag.vector_store import CWEVectorStore
+from app.mcp.server import server as mcp_server
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -158,6 +160,48 @@ async def stream_audit(session_id: str):
 @app.get("/api/telemetry/metrics")
 def get_telemetry_metrics():
     return telemetry.get_summary()
+
+@app.get("/api/telemetry/traces")
+def get_telemetry_traces():
+    """Returns OpenTelemetry distributed trace waterfalls captured during agent executions."""
+    return {
+        "tracer": "sentinel.ai",
+        "total_spans": len(tracer.get_waterfall_traces()),
+        "spans": tracer.get_waterfall_traces()
+    }
+
+@app.post("/api/rag/query")
+def query_cwe_rag(payload: dict):
+    """Semantic vector search over CWE mitigation guidelines using local ChromaDB."""
+    query = payload.get("query", "")
+    cwe_id = payload.get("cwe_id")
+    top_k = payload.get("top_k", 2)
+    store = CWEVectorStore()
+    results = store.query_guidance(query=query, cwe_id=cwe_id, n_results=top_k)
+    return {
+        "query": query,
+        "cwe_id": cwe_id,
+        "results_count": len(results),
+        "results": results,
+        "formatted_prompt": store.format_guidance_for_prompt(results)
+    }
+
+@app.post("/api/mcp/tool")
+async def invoke_mcp_tool(payload: dict):
+    """Executes a tool on the SentinelAI MCP server directly via HTTP."""
+    tool_name = payload.get("tool_name")
+    arguments = payload.get("arguments", {})
+    if not tool_name:
+        raise HTTPException(status_code=400, detail="Missing tool_name parameter")
+    try:
+        res = await mcp_server.call_tool(tool_name, arguments)
+        return {
+            "tool": tool_name,
+            "result": res.structured_content or (res.content[0].text if res.content else None),
+            "is_error": res.is_error
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MCP tool execution failed: {str(e)}")
 
 @app.get("/api/audit/status/{session_id}")
 def get_audit_status(session_id: str):

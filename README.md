@@ -32,10 +32,13 @@ Engineered specifically to run efficiently on consumer/edge hardware (**NVIDIA G
 1. **Tree-sitter AST & Cross-File Symbol Graph**: Parses Concrete Syntax Trees (CST) and builds an in-memory symbol call graph across modules (`db.py` $\rightarrow$ `service.py`) to prevent broken function signatures or regressions.
 2. **Deterministic Grounding (Bandit + AST Rules + OWASP/CWE)**: Grounds vulnerability detection in deterministic AST analysis and Bandit static rulesets mapped to 9 CWE classes and OWASP Top 10 standards.
 3. **Stateful Self-Correction Loop (LangGraph)**: An autonomous state machine (`Scan` $\rightarrow$ `Plan` $\rightarrow$ `Patch` $\rightarrow$ `Verify in Sandbox` $\rightarrow$ `Reflect/Heal` $\rightarrow$ `Finalize`) supporting up to 3 attempts with traceback-driven reflection.
-4. **Container & Subprocess Execution Sandbox**: Enforces dual-layer containment using Docker containers (`--network none`, `--memory 512m`) or scrubbed ephemeral subprocesses with Windows process tree termination (`taskkill /F /T`) and rollback guardrails.
-5. **Held-Out Exploit & Contract Verification**: Patches are validated not only against visible repo tests, but against held-out adversarial exploit payloads and contract tests that the agent never sees during its healing loop.
-6. **Real-Time Streaming Studio**: FastAPI Server-Sent Events (SSE) streaming thought tokens and sandbox logs directly to a modern React + Monaco Diff viewer.
-7. **Local Telemetry & Observability**: In-memory and file-backed telemetry logging audit latencies, resolution rates, and sandbox runtimes without third-party cloud trackers.
+4. **Official Model Context Protocol (MCP 2.x) Server**: Built-in Python MCP server exposing AST symbol graphs, vulnerability scans, patch diffing, and sandbox test execution as standardized MCP tools.
+5. **Dynamic LLM Tool Calling**: Supports autonomous model-driven tool execution where Qwen2.5-Coder directly invokes live codebase inspection and sandbox verification tools via OpenAI/Ollama function calling.
+6. **Local Vector RAG (ChromaDB)**: Embeds and retrieves expert CWE security remediation patterns and secure coding guides using a local ChromaDB vector store.
+7. **Container & Subprocess Execution Sandbox**: Enforces dual-layer containment using Docker containers (`--network none`, `--memory 512m`) or scrubbed ephemeral subprocesses with Windows process tree termination (`taskkill /F /T`) and rollback guardrails.
+8. **Held-Out Exploit & Contract Verification**: Patches are validated not only against visible repo tests, but against held-out adversarial exploit payloads and contract tests that the agent never sees during its healing loop.
+9. **OpenTelemetry Tracing & Observability**: Distributed span tracking for LLM token usage, prompt evaluation latency, tool invocations, and sandbox test durations with waterfall exports.
+10. **Real-Time Streaming Studio**: FastAPI Server-Sent Events (SSE) streaming thought tokens and sandbox logs directly to a modern React + Monaco Diff viewer.
 
 ---
 
@@ -268,6 +271,9 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `GET` | `/api/audit/stream/{session_id}` | Server-Sent Events (SSE) streaming thought tokens, logs, and unified diffs. |
 | `GET` | `/api/audit/status/{session_id}` | Retrieves the current state, findings, and applied diffs for a session. |
 | `GET` | `/api/telemetry/metrics` | Returns aggregated metrics: total audits, mean duration, and fix rate. |
+| `GET` | `/api/telemetry/traces` | Returns OpenTelemetry distributed trace waterfalls for agent spans and tool calls. |
+| `POST` | `/api/rag/query` | Semantic vector search over CWE mitigation guidelines using local ChromaDB. |
+| `POST` | `/api/mcp/tool` | Executes a tool on the SentinelAI MCP server directly over HTTP. |
 | `GET` | `/api/health` | Health-check endpoint reporting app version and local model configuration. |
 
 ---
@@ -283,38 +289,50 @@ AI_Studio/
 ├── backend/                             # Core Python Engine & API
 │   ├── Dockerfile.sandbox               # Hardened Docker sandbox image (--network none)
 │   ├── app/
-│   │   ├── main.py                      # FastAPI app & SSE streaming routes
+│   │   ├── main.py                      # FastAPI app, SSE streaming, & MCP/RAG routes
 │   │   ├── cli.py                       # Rich terminal CLI runner
 │   │   ├── config.py                    # Hardware & runtime configuration
-│   │   ├── observability.py             # Telemetry & metrics tracker
+│   │   ├── observability.py             # OpenTelemetry distributed tracing & telemetry
 │   │   │
-│   │   ├── ast_engine/                  # Pillar 1: AST Ingestion
+│   │   ├── mcp/                         # Pillar: Model Context Protocol (MCP 2.x)
+│   │   │   └── server.py                # Official MCPServer exposing 6 tools & resources
+│   │   │
+│   │   ├── rag/                         # Pillar: Local Vector RAG
+│   │   │   ├── knowledge_base.py        # CWE security guidelines & mitigation patterns
+│   │   │   └── vector_store.py          # Persistent ChromaDB vector similarity engine
+│   │   │
+│   │   ├── ast_engine/                  # Pillar: AST Ingestion
 │   │   │   ├── parser.py                # Tree-sitter CST parser (Python, JS, TS)
 │   │   │   └── symbol_graph.py          # Cross-file dependency call graph
 │   │   │
-│   │   ├── scanners/                    # Pillar 2: Static Analysis
+│   │   ├── scanners/                    # Pillar: Static Analysis
 │   │   │   ├── bandit_runner.py         # Bandit scanner & CWE/OWASP mapper
 │   │   │   ├── ast_security_rules.py    # Custom Tree-sitter AST security rules
 │   │   │   └── schemas.py               # Pydantic vulnerability findings models
 │   │   │
-│   │   ├── agent/                       # Pillar 3: LangGraph State Machine
+│   │   ├── agent/                       # Pillar: Autonomous Agent Systems
 │   │   │   ├── graph.py                 # LangGraph state machine workflow
 │   │   │   ├── state.py                 # Pydantic agent state schema
-│   │   │   └── model_client.py          # Local SLM inference & structured synthesis client
+│   │   │   ├── model_client.py          # Local SLM inference & structured synthesis client
+│   │   │   └── tool_calling_agent.py    # Dynamic LLM Tool-Calling agent loop
 │   │   │
-│   │   └── sandbox/                     # Pillar 4: Execution Sandbox
+│   │   └── sandbox/                     # Pillar: Execution Sandbox
 │   │       ├── docker_sandbox.py        # Docker container sandbox runner (--network none)
 │   │       ├── patch_engine.py          # Unified git diff generator & rollback engine
 │   │       └── runner.py                # Dual-mode container & scrubbed subprocess test runner
 │   │
-│   └── tests/                           # Unit and integration test suites (5 test suites)
+│   └── tests/                           # Unit and integration test suites (9 test suites, 18 tests)
 │       ├── test_agent_loop.py           # LangGraph self-healing loop tests
 │       ├── test_api_direct.py           # FastAPI route handler direct tests
 │       ├── test_ast_engine.py           # Tree-sitter symbol graph & caller tests
+│       ├── test_mcp_server.py           # Model Context Protocol (MCP 2.x) server tests
+│       ├── test_opentelemetry_tracing.py # OpenTelemetry trace waterfall & span tests
+│       ├── test_rag_vector_store.py     # ChromaDB Vector RAG semantic search tests
+│       ├── test_tool_calling.py         # Dynamic LLM function calling tests
 │       ├── test_sandbox_fault_injection.py # Infinite loop & host write escape containment
 │       └── test_telemetry.py            # Audit metrics tracking tests
 │
-├── frontend/                            # Pillar 5: Interactive Developer Studio
+├── frontend/                            # Interactive Developer Studio (React + Monaco)
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Header.tsx               # Control bar & 12 scenario preset selectors
@@ -342,9 +360,15 @@ AI_Studio/
 
 ---
 
-## 💼 Resume Bullet Points (Ready for Copy-Paste)
+## 💼 Resume Skills & Bullet Points (Ready for Copy-Paste)
 
-### AI Code Security & Refactoring Agent | Python, FastAPI, LangGraph, Tree-sitter, React/TypeScript
+### Skills Line for AI / LLM Engineer Roles
+```latex
+\textbf{AI \& LLM Systems}{: LangGraph (Agentic Workflows), Model Context Protocol (MCP 2.x), Dynamic LLM Tool Calling, Local Vector RAG (ChromaDB), Ollama (Local GPU Inference), OpenTelemetry Tracing, Code-Context Retrieval (Tree-sitter AST), LLM Evaluation \& Benchmarking (Pass@k, Ablation Studies)}
+```
+
+### AI Code Security & Refactoring Agent | Python, FastAPI, LangGraph, MCP, ChromaDB, Tree-sitter, React/TypeScript
 * Lifted a local Qwen2.5-Coder-7B from 55% (single attempt) to 70% (≤3-attempt reflection loop) verified fixes across 20 scenarios and 9 CWE classes with held-out exploit grading, using a LangGraph scan → patch → test → reflect pipeline (Tree-sitter symbol graph, Bandit/AST security gate), including 5/8 → 7/8 on 8 scenarios withheld from development.
+* Developed an official Model Context Protocol (MCP 2.x) server and dynamic tool-calling engine, enabling the local SLM to autonomously query AST symbol graphs, execute sandbox test suites, and retrieve CWE remediation guidance via a local ChromaDB Vector RAG store.
 * Doubled development-set single-shot success from 25% to 50% with driver-aware prompt grounding and a generic stdlib import resolver, and terminated runaway test processes in under 5s with automatic rollback of failing patches in a timeout-enforced, environment-scrubbed subprocess sandbox.
-* Delivered a React/TypeScript studio (Monaco diff, live reasoning stream) over FastAPI Server-Sent Events, running offline on an 8GB GPU at 43–62 tok/s with ~6s median (~19s p95) end-to-end latency per scenario.
+* Delivered a React/TypeScript studio (Monaco diff, live reasoning stream) over FastAPI Server-Sent Events, running offline on an 8GB GPU at 43–62 tok/s with ~6s median (~19s p95) latency and end-to-end OpenTelemetry distributed tracing.
